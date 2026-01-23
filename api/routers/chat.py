@@ -10,6 +10,7 @@ from agent.schema.state import AgentState
 from agent.utils.formatter import create_sse_message
 from agent.graph.core_graph import base_graph
 from agent.utils.callbacks import AdvancedStateCallback
+from agent.history_manager import ChatHistoryManager
 
 
 logger = APILogger()
@@ -177,13 +178,15 @@ async def chat(request: QueryRequest, background_tasks: BackgroundTasks):
         elif graph_result:
             logger.info(f"채팅 요청 완료 - chat_id: {request.chat_id}, content: {request.user_query[:100]}...")
 
-        completion_event.set()
-#             background_tasks.add_task(
-#                 save_conversation_after_streaming,
-#                 request,
-#                 response_data,
-#                 completion_event,
-#             )
+        completion_event.set()      
+
+    background_tasks.add_task(
+        save_conversation_after_streaming,
+        request,
+        response_data,
+        completion_event,
+        )
+
     return StreamingResponse(
                 deliver_chat_response_stream(),
                 media_type="text/event-stream",
@@ -196,53 +199,52 @@ async def chat(request: QueryRequest, background_tasks: BackgroundTasks):
             )   
 
 
-# async def save_conversation_after_streaming(
-#     request: QueryRequest,
-#     response_data: Dict[str, Any],
-#     completion_event: asyncio.Event,
-# ):
-#     """스트리밍 완료 후 대화 저장"""
+async def save_conversation_after_streaming(
+    request: QueryRequest,
+    response_data: Dict[str, Any],
+    completion_event: asyncio.Event,
+):
+    """스트리밍 완료 후 대화 저장"""
 
-#     try:
-#         await asyncio.wait_for(completion_event.wait(), timeout=30.0)
+    try:
+        await asyncio.wait_for(completion_event.wait(), timeout=30.0)
     
-#     except Exception as e:
-#         logger.error(
-#             "\n>>>Streaming 완료 대기 시간이 초과하여 대화내역 저장 실패하였습니다.\n"
-#         )
-#         return
+    except Exception as e:
+        logger.error(
+            "\n>>>Streaming 완료 대기 시간이 초과하여 대화내역 저장 실패하였습니다.\n"
+        )
+        return
 
-#     try:
-#         # ChatHistoryManager를 사용하여 대화 저장
-#         history_manager = ChatHistoryManager()
+    try:
+        history_manager = ChatHistoryManager()
 
-#         # final_state 형식으로 저장 데이터 구성
-#         final_state = response_data.get("final_state", {})
-#         if not final_state:
-#             # final_state가 없으면 기본 정보로 구성
-#             final_state = {
-#                 "id": request.chat_id,
-#                 "user_no": request.user_no,
-#                 "chat_id": request.chat_id,
-#                 "room_id": request.room_id,
-#                 "user_query": request.user_query,
-#                 "exe_date": request.exe_date,
-#                 "intents": response_data.get("intents", []),
-#                 "output": response_data.get("content", ""),
-#                 "metadata": response_data.get("metadata", {}),
-#                 "rag_document_ids": response_data.get("rag_document_ids", []),
-#                 "chat_type": response_data.get("chat_type", 0),
-#             }
-#         else:
-#             # final_state에 output 추가
-#             final_state["output"] = response_data.get("content", "")
+        # final_state 형식으로 저장 데이터 구성
+        final_state = response_data.get("final_state", {})
+        if not final_state:
+            # final_state가 없으면 기본 정보로 구성
+            final_state = {
+                "id": request.chat_id,
+                "user_no": request.user_no,
+                "chat_id": request.chat_id,
+                "room_id": request.room_id,
+                "user_query": request.user_query,
+                "exe_date": request.exe_date,
+                "intents": response_data.get("intents", []),
+                "output": response_data.get("content", ""),
+                "metadata": response_data.get("metadata", {}),
+                "rag_document_ids": response_data.get("rag_document_ids", []),
+                "chat_type": response_data.get("chat_type", 0),
+            }
+        else:
+            # final_state에 output 추가
+            final_state["output"] = response_data.get("content", "")
 
-#         # 대화 저장
-#         await history_manager.save_conversation(
-#             chat_id=request.chat_id, final_state=final_state
-#         )
+        # 대화 저장
+        await history_manager.save_conversation(
+            chat_id=request.chat_id, final_state=final_state
+        )
 
-#         logger.debug(f"대화 저장 완료: chat_id={request.chat_id}")
+        logger.debug(f"대화 저장 완료: chat_id={request.chat_id}")
 
-#     except Exception as e:
-#         logger.error(f"대화 저장 실패: {e}")
+    except Exception as e:
+        logger.error(f"대화 저장 실패: {e}")
