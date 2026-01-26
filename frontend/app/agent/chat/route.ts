@@ -87,6 +87,7 @@ const coerceContentToString = (content: AssistantMessage['content']): string => 
 let chatId: string | null = null;
 
 export async function POST(req: Request) {
+  console.log('[ROUTE] ===== /agent/chat API 호출됨 =====');
   try {
     const body = await req.json();
     console.log('[ROUTE] 1. 받은 body:', JSON.stringify(body, null, 2));
@@ -123,6 +124,12 @@ export async function POST(req: Request) {
     });
 
     // chat_id와 최신 메시지만 전송
+    console.log('[ROUTE] 4. 백엔드 호출 시작:', {
+      url: 'http://localhost:8000/agent/chat',
+      chat_id: chatId,
+      user_query: content.substring(0, 50)
+    });
+
     const backendResponse = await fetch('http://localhost:8000/agent/chat', {
       method: 'POST',
       headers: {
@@ -131,11 +138,17 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         chat_id: chatId,
-        message: {
-          role: lastMessage.role,
-          content: content,
-        }
+        user_query: content,
+        user_no: 'test-user-001',
+        room_id: 'test-room-001',
+        exe_date: new Date().toISOString(),
       }),
+    });
+
+    console.log('[ROUTE] 5. 백엔드 응답 받음:', {
+      status: backendResponse.status,
+      ok: backendResponse.ok,
+      headers: Object.fromEntries(backendResponse.headers.entries())
     });
 
     if (!backendResponse.ok) {
@@ -148,6 +161,9 @@ export async function POST(req: Request) {
         }
       );
     }
+
+    // 백엔드 응답을 그대로 프록시 (변환 없이)
+    console.log('[ROUTE] 6. 백엔드 응답을 그대로 전달');
 
     return new Response(backendResponse.body, {
       headers: {

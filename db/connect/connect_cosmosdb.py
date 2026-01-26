@@ -1,5 +1,10 @@
 import os
+import socket
+from urllib.parse import urlparse
 from azure.cosmos import CosmosClient, PartitionKey
+from api.core.logger import APILogger
+
+logger = APILogger()
 
 
 class CosmosDBClient:
@@ -13,6 +18,8 @@ class CosmosDBClient:
             raise ValueError(
                 "CosmosDB 엔드포인트와 키가 필요합니다. 환경변수 agent-cosmos-endpoint와 agent-cosmos-key를 설정하거나 직접 전달하세요."
             )
+
+        # CosmosClient 생성
         self.client = CosmosClient(self.endpoint, credential=self.key)
 
     def get_container(
