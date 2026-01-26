@@ -1,11 +1,13 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any, Annotated, Sequence
 from langchain_core.messages import HumanMessage, AIMessage
-from langchain_core.runnables import add_messages
+from langgraph.graph.message import add_messages
 
 
-class AgentExecutionState(BaseModel):
+class AgentState(BaseModel):
     """Plan-and-Execute Agent의 state 정의"""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     # 기본 정보
     id: str
@@ -54,3 +56,6 @@ class AgentExecutionState(BaseModel):
 
     # rag 최종 결과 document_id 리스트
     rag_document_ids: List[str] = []
+
+    # 스텝별 상태 messages
+    step_messages: List[str] = []

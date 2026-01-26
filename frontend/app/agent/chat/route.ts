@@ -83,7 +83,11 @@ const coerceContentToString = (content: AssistantMessage['content']): string => 
     .join('\n');
 };
 
+// Chat ID 생성 및 관리
+let chatId: string | null = null;
+
 export async function POST(req: Request) {
+  console.log('[ROUTE] ===== /agent/chat API 호출됨 =====');
   try {
     const body = await req.json();
     console.log('[ROUTE] 1. 받은 body:', JSON.stringify(body, null, 2));
@@ -91,29 +95,60 @@ export async function POST(req: Request) {
     const { messages = [] } = body as {
       messages?: AssistantMessage[];
     };
-    console.log('[ROUTE] 2. 추출한 messages:', messages);
+    console.log('[ROUTE] 2. 추출한 전체 messages 수:', messages.length);
 
-    const normalizedMessages = messages
-      .map((message) => {
-        // parts 배열이 있으면 parts를 content로 변환, 없으면 기존 content 사용
-        const contentSource = message.parts || message.content;
-        const content = coerceContentToString(contentSource);
-        return {
-          role: message.role,
-          content: content,
-        };
-      })
-      .filter((message) => message.content.trim().length > 0);
+    // 최신 메시지만 추출 (마지막 user 메시지)
+    const lastMessage = messages[messages.length - 1];
 
-    console.log('[ROUTE] 3. 정규화 후 normalizedMessages:', normalizedMessages);
-    console.log('[ROUTE] 4. 백엔드로 전송할 데이터:', JSON.stringify({ messages: normalizedMessages }, null, 2));
+    if (!lastMessage) {
+      return new Response(
+        JSON.stringify({ error: '메시지가 없습니다.' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Chat ID가 없으면 생성
+    if (!chatId) {
+      chatId = `chat-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+      console.log('[ROUTE] 새 채팅 생성:', chatId);
+    }
+
+    // 최신 메시지 정규화
+    const contentSource = lastMessage.parts || lastMessage.content;
+    const content = coerceContentToString(contentSource);
+
+    console.log('[ROUTE] 3. 전송할 최신 메시지:', {
+      chat_id: chatId,
+      role: lastMessage.role,
+      content: content.substring(0, 100) + (content.length > 100 ? '...' : '')
+    });
+
+    // chat_id와 최신 메시지만 전송
+    console.log('[ROUTE] 4. 백엔드 호출 시작:', {
+      url: 'http://localhost:8000/agent/chat',
+      chat_id: chatId,
+      user_query: content.substring(0, 50)
+    });
 
     const backendResponse = await fetch('http://localhost:8000/agent/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-Chat-Id': chatId,
       },
-      body: JSON.stringify({ messages: normalizedMessages }),
+      body: JSON.stringify({
+        chat_id: chatId,
+        user_query: content,
+        user_no: 'test-user-001',
+        room_id: 'test-room-001',
+        exe_date: new Date().toISOString(),
+      }),
+    });
+
+    console.log('[ROUTE] 5. 백엔드 응답 받음:', {
+      status: backendResponse.status,
+      ok: backendResponse.ok,
+      headers: Object.fromEntries(backendResponse.headers.entries())
     });
 
     if (!backendResponse.ok) {
@@ -126,6 +161,9 @@ export async function POST(req: Request) {
         }
       );
     }
+
+    // 백엔드 응답을 그대로 프록시 (변환 없이)
+    console.log('[ROUTE] 6. 백엔드 응답을 그대로 전달');
 
     return new Response(backendResponse.body, {
       headers: {

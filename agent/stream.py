@@ -5,13 +5,11 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from agent.schema.chat import Message
 from api.core.logger import APILogger
 from agent.llm_endpoint import get_safe_llm
-from config.settings import get_config
 
 logger = APILogger()
-config = get_config()
 
 
-async def generate_sse_stream(messages: List[Message]) -> AsyncGenerator[str, None]:
+async def generate_sse_stream(messages: Message) -> AsyncGenerator[str, None]:
     """
     SSE(Server-Sent Events) 형식으로 스트리밍 응답 생성
 
@@ -22,18 +20,16 @@ async def generate_sse_stream(messages: List[Message]) -> AsyncGenerator[str, No
         SSE 형식의 문자열 데이터
     """
     try:
-        langchain_messages = []
-        for msg in messages:
-            if msg.role == "user":
-                langchain_messages.append(HumanMessage(content=msg.content))
-            elif msg.role == "assistant":
-                langchain_messages.append(AIMessage(content=msg.content))
-            elif msg.role == "system":
-                langchain_messages.append(SystemMessage(content=msg.content))
+        # langchain_messages = []
+        # for msg in messages:
+        #     if msg.role == "user":
+        #         langchain_messages.append(HumanMessage(content=msg.content))
+        #     elif msg.role == "assistant":
+        #         langchain_messages.append(AIMessage(content=msg.content))
+        #     elif msg.role == "system":
+        #         langchain_messages.append(SystemMessage(content=msg.content))
 
         # Azure OpenAI LLM 가져오기
-        llm = get_safe_llm(model_name=config.get("agent-azure-openai-model-name"))
-        logger.info(f"채팅 요청 처리 시작 - 메시지 수: {len(langchain_messages)}")
 
         # 스트리밍 응답 생성
         full_response = ""
@@ -42,7 +38,7 @@ async def generate_sse_stream(messages: List[Message]) -> AsyncGenerator[str, No
         # 메시지 시작 신호 전송
         yield f"data: {json.dumps({'type': 'start', 'messageId': message_id}, ensure_ascii=False)}\n\n"
         yield f"data: {json.dumps({'type': 'text-start', 'id': message_id}, ensure_ascii=False)}\n\n"
-
+        
         async for chunk in llm.astream(langchain_messages):
             if hasattr(chunk, 'content') and chunk.content:
                 content = chunk.content

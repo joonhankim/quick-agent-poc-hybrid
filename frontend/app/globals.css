@@ -79,37 +79,55 @@
 }
 
 .dark {
-  --background: oklch(0.141 0.005 285.823);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.21 0.006 285.885);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.21 0.006 285.885);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.92 0.004 286.32);
-  --primary-foreground: oklch(0.21 0.006 285.885);
-  --secondary: oklch(0.274 0.006 286.033);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.274 0.006 286.033);
-  --muted-foreground: oklch(0.705 0.015 286.067);
-  --accent: oklch(0.274 0.006 286.033);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.552 0.016 285.938);
-  --chart-1: oklch(0.488 0.243 264.376);
+  /* Discord/Linear 스타일의 검증된 다크 팔레트 */
+  /* 메인 영역 - 약간 밝은 다크 그레이 */
+  --background: oklch(0.16 0.005 265);
+  --foreground: oklch(0.95 0 0);
+
+  /* 카드 - 메인보다 약간 더 밝음 */
+  --card: oklch(0.19 0.006 265);
+  --card-foreground: oklch(0.95 0 0);
+  --popover: oklch(0.19 0.006 265);
+  --popover-foreground: oklch(0.95 0 0);
+
+  /* 프라이머리 - 남색 계열 (HD현대 브랜드와 조화) */
+  --primary: oklch(0.55 0.2 260);
+  --primary-foreground: oklch(0.98 0 0);
+
+  /* 세컨더리 - 차분한 그레이 */
+  --secondary: oklch(0.22 0.008 265);
+  --secondary-foreground: oklch(0.95 0 0);
+
+  /* Muted - 더 낮은 대비 */
+  --muted: oklch(0.2 0.008 265);
+  --muted-foreground: oklch(0.6 0.012 265);
+
+  /* Accent - 초록 계열 (HD현대 로고와 조화) */
+  --accent: oklch(0.6 0.18 150);
+  --accent-foreground: oklch(0.98 0 0);
+
+  --destructive: oklch(0.65 0.25 25);
+
+  /* 보더 - 미묘하지만 명확한 구분 */
+  --border: oklch(0.25 0.01 265);
+  --input: oklch(0.2 0.008 265);
+  --ring: oklch(0.55 0.2 260);
+
+  --chart-1: oklch(0.588 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.21 0.006 285.885);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.274 0.006 286.033);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.552 0.016 285.938);
+
+  /* 사이드바 - 메인보다 더 어두운 톤으로 명확히 구분 */
+  --sidebar: oklch(0.11 0.008 265);
+  --sidebar-foreground: oklch(0.88 0 0);
+  --sidebar-primary: oklch(0.55 0.2 260);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.18 0.008 265);
+  --sidebar-accent-foreground: oklch(0.95 0 0);
+  --sidebar-border: oklch(0.18 0.01 265);
+  --sidebar-ring: oklch(0.55 0.2 260);
 }
 
 @layer base {
@@ -128,4 +146,147 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* 세련된 그라데이션 효과 */
+.gradient-text {
+  background: linear-gradient(to right, var(--primary), var(--accent), var(--primary));
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* 글로우 효과 - 남색 계열로 조정 */
+.glow-border {
+  box-shadow: 0 0 24px rgba(59, 130, 246, 0.35), 0 0 12px rgba(37, 99, 235, 0.2);
+}
+
+.glow-text {
+  text-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+}
+
+/* 유리 효과 (Glassmorphism) - 더 미묘한 느낌 */
+.glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* 예시 질문 카드 스타일 - 남색 계열로 조정 */
+.suggestion-card {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(37, 99, 235, 0.05) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.suggestion-card:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(37, 99, 235, 0.1) 100%);
+  border-color: rgba(59, 130, 246, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3), 0 0 20px rgba(59, 130, 246, 0.2);
+}
+
+/* 부드러운 전환 효과 */
+.smooth-transition {
+  transition: all 0.3s ease-in-out;
+}
+
+/* 호버 효과 */
+.hover-lift {
+  transition: all 0.3s ease-in-out;
+}
+
+.hover-lift:hover {
+  transform: scale(1.02);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+/* 스크롤바 스타일 */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.5);
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.7);
+}
+
+/* 메시지 애니메이션 */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message-enter {
+  animation: slideIn 0.3s ease-out;
+}
+
+/* 타이핑 인디케이터 */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.typing-indicator span {
+  animation: pulse 1.4s infinite;
+}
+
+.typing-indicator span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-indicator span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+/* Gemini 스타일 AI 아이콘 애니메이션 */
+@keyframes sparkle {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.1) rotate(5deg);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+.ai-avatar {
+  background: linear-gradient(135deg, #2563eb 0%, #02e400 20%, #1e40af 40%, #00ad1d 60%, #1d4ed8 80%, #2563eb 100%);
+  background-size: 200% 200%;
+  animation: shimmer 3s linear infinite;
+}
+
+.ai-avatar-inner {
+  animation: sparkle 2s ease-in-out infinite;
 }

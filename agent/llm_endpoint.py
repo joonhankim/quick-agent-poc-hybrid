@@ -176,12 +176,27 @@ class SafeLLMWrapper:
     
     def _handle_bad_request(self, error: Exception, user_query: str):
         """Invoke Error 처리"""
+        import traceback
+
         error_str = str(error)
         error_type = type(error).__name__
         error_code = getattr(error, "status_code", None)
+
+        # 상세 에러 정보 로깅
+        logger.error(f"=== LLM Invoke Error 상세 정보 ===")
+        logger.error(f"Error Type: {error_type}")
+        logger.error(f"Error Message: {error_str}")
+        logger.error(f"Error Code: {error_code}")
+        logger.error(f"Error Body: {getattr(error, 'body', None)}")
+        logger.error(f"Error Response: {getattr(error, 'response', None)}")
+        logger.error(f"Error Cause: {error.__cause__}")
+        logger.error(f"Error Context: {error.__context__}")
+        logger.error(f"Full Traceback:\n{traceback.format_exc()}")
+        logger.error(f"================================")
+
         try:
             generate_message = self.generate_error_message(error_type, error_str)
-        except Exception as gen_error:
+        except Exception as gen_error: 
             logger.error(f">>> Error generating friendly message: {gen_error}")
             generate_message = "죄송합니다. 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
 
