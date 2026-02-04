@@ -1,9 +1,7 @@
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain_core.messages import messages_to_dict
-
-from api.core.logger import APILogger
+from langchain_core.messages import HumanMessage, SystemMessage
 from agent.schema.state import AgentState
 from agent.main import llm
+from api.core.logger import APILogger
 
 logger = APILogger()
 
@@ -75,5 +73,45 @@ async def crew_collaboration_node(state: AgentState) -> AgentState:
         }
         # 폴백: 기존 LLM 응답 사용
         state.final_response = f"법무지원 RAG 크루 실행 중 오류가 발생했습니다. 기본 응답으로 전환합니다."
+    
+    return state
+
+
+async def validation_node(state: AgentState) -> AgentState:
+    """
+    [FSM] 답변 품질 검증 노드
+    - 답변에 불충분한 내용이나 에러 키워드가 있는지 검사
+    - 실패 시 재시도 카운터 증가 및 사용자 친화적 메시지 추가
+    """
+    response = state.final_response or ""
+    
+    # 품질 검증 로직: 실패 키워드 체크
+    failure_keywords = ["죄송합니다", "답변을 드릴 수 없습니다", "정보가 부족합니다", "오류가 발생"]
+    
+    is_valid = True
+    for keyword in failure_keywords:
+        if keyword in response:
+            is_valid = False
+            logger.warning(f"답변 품질 검증 실패: '{keyword}' 키워드 발견")
+            break
+    
+    if is_valid:
+        state.validation_status = "passed"
+        logger.info("답변 품질 검증 통과")
+    else:
+        # 재시도 로직
+        if state.retry_count < state.max_retries:
+            state.retry_count += 1
+            state.validation_status = "retry"
+            
+            # 사용자 친화적 메시지 (latency 우려 해소)
+            retry_message = f"💡 더 나은 답변을 위해 재검토 중입니다... (시도 {state.retry_count}/{state.max_retries})"
+            state.step_messages.append(retry_message)
+            logger.info(f"재시도 진행 중: {state.retry_count}/{state.max_retries}")
+        else:
+            # 최대 재시도 초과
+            state.validation_status = "failed"
+            state.step_messages.append("⚠️ 최선을 다했으나 충분한 답변을 생성하지 못했습니다. 질문을 구체화해주시면 더 도움이 될 것 같습니다.")
+            logger.warning(f"최대 재시도 횟수 초과: {state.max_retries}")
     
     return state

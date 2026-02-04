@@ -64,3 +64,8 @@ class AgentState(BaseModel):
     # 법무지원 RAG 관련 필드
     search_results: List[Dict[str, Any]] = []  # Azure AI Search 검색 결과
     legal_analysis_metadata: Dict[str, Any] = {}  # 법률 분석 메타데이터 (참조 조항, 판례 등)
+    
+    # [FSM] 재시도 로직을 위한 필드
+    retry_count: int = 0  # 현재 재시도 횟수
+    max_retries: int = 3  # 최대 재시도 횟수
+    validation_status: str = "pending"  # pending, passed, failed
