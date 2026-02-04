@@ -59,6 +59,15 @@ quick-agent-poc-hybrid/
 - **실시간 스트리밍**: Server-Sent Events(SSE)를 통한 즉각적인 응답 제공
 - **대화 이력 관리**: CosmosDB를 활용한 지속적인 대화 컨텍스트 유지
 
+### ⚡ 성능 및 안정성 (Performance & Stability)
+- **비동기 아키텍처 (AsyncIO)**: `Blocking I/O` 제거를 통한 고성능 동시성 처리
+- **성능 모니터링**: 요청 처리 시간(Latency) 로깅 미들웨어 탑재
+- **FSM 기반 자가 치유 (Self-Healing)**: 답변 품질 저하 시 자동으로 재시도(Retry)하는 순환형 워크플로우
+
+### 🛡️ 품질 보증 (Quality Assurance)
+- **3단계 검증 프로세스**: 검색(Search) → 분석(Analysis) → 작성(Writing)
+- **자동 품질 검사**: 불충분한 답변이나 에러 발생 시 즉시 감지하여 재검토 수행
+
 ### 🛠️ 시스템 기능
 - **안전한 에러 핸들링**: 포괄적인 예외 처리 및 회복 메커니즘
 - **환경별 설정**: local/development/production 환경 지원
@@ -428,8 +437,18 @@ def create_graph():
     workflow.add_node("new_analysis_node", new_analysis_node)
     
     # 노드 연결
-    workflow.add_edge("start_node", "new_analysis_node")
-    workflow.add_edge("new_analysis_node", "generate_response_node")
+    workflow.add_edge("start_node", "crew_collaboration")
+    workflow.add_edge("crew_collaboration", "validation")
+    
+    # [FSM] 조건부 엣지: 재시도 로직
+    workflow.add_conditional_edges(
+        "validation",
+        should_retry,
+        {
+            "retry": "crew_collaboration",
+            "end": END
+        }
+    )
     
     return workflow.compile()
 ```
@@ -633,6 +652,9 @@ cat .env | grep -E "(agent-azure-openai|APP_ENV)"
 # 4. 포트 충돌 확인
 lsof -i :8000  # Linux/Mac
 netstat -ano | findstr :8000  # Windows
+
+# 5. 성능 문제 확인 (Slow Query)
+# logs/performance.log 확인 또는 터미널 로그에서 "Slow Request Detected" 검색
 ```
 
 #### Frontend 연결 실패
