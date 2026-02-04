@@ -8,6 +8,7 @@ from api.routers.db import router as db_router
 
 from api.core.logger import APILogger
 from middleware.cors import add_cors_middleware
+from middleware.performance import PerformanceMiddleware
 from db import verify_cosmosdb_connection
 
 logger = APILogger()
@@ -31,6 +32,9 @@ def create_app():
         version="0.1.0",
         lifespan=lifespan
     )
+    # [Middleware] 성능 로깅 미들웨어 추가 (가장 먼저 실행되도록 상단 배치 권장)
+    app.add_middleware(PerformanceMiddleware)
+    
     # CORS 설정 - Frontend와 통신 허용
     add_cors_middleware(app)
 
