@@ -34,6 +34,7 @@ class AgentState(BaseModel):
     # 메타데이터
     planning_metadata: Dict[str, Any] = {}
     execution_metadata: Dict[str, Any] = {}
+    crew_metadata: Dict[str, Any] = {}  # CrewAI 실행 결과 및 메타데이터
     error_logs: List[str] = []
 
     # 라우팅 정보
@@ -59,3 +60,7 @@ class AgentState(BaseModel):
 
     # 스텝별 상태 messages
     step_messages: List[str] = []
+    
+    # 법무지원 RAG 관련 필드
+    search_results: List[Dict[str, Any]] = []  # Azure AI Search 검색 결과
+    legal_analysis_metadata: Dict[str, Any] = {}  # 법률 분석 메타데이터 (참조 조항, 판례 등)
