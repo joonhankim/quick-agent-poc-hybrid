@@ -1,5 +1,6 @@
 from typing import Any
 from langgraph.graph import StateGraph, START, END
+from langgraph.checkpoint.memory import MemorySaver
 
 from agent.schema.state import AgentState
 from agent.node.core_node import (
@@ -25,14 +26,14 @@ def should_retry(state: AgentState) -> str:
 
 def create_graph():
     """
-    agent graph 생성 - LangGraph + CrewAI 하이브리드 + FSM Retry Cycle
+    agent graph 생성 - LangGraph + CrewAI 하이브리드 + FSM Retry Cycle + Persistence
     """
     workflow = StateGraph(AgentState)
     
     # 노드 추가
     workflow.add_node("start_node", start_node)
     workflow.add_node("crew_collaboration", crew_collaboration_node)  # CrewAI 협업 노드
-workflow.add_node("validation", validation_node)  # [FSM] 품질 검증 노드
+    workflow.add_node("validation", validation_node)  # [FSM] 품질 검증 노드
     
     # 엣지 연결 - LangGraph가 전체 흐름을 제어
     workflow.set_entry_point("start_node")
@@ -49,7 +50,11 @@ workflow.add_node("validation", validation_node)  # [FSM] 품질 검증 노드
         }
     )
     
-    return workflow.compile()
+    # [Persistence] 메모리 체크포인터 설정
+    # 이를 통해 대화 상태(Thread)별로 상태를 저장하고 복구할 수 있음
+    memory = MemorySaver()
+    
+    return workflow.compile(checkpointer=memory)
 
 
 base_graph = create_graph()

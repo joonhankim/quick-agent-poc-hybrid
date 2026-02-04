@@ -97,12 +97,13 @@ async def chat(request: QueryRequest, background_tasks: BackgroundTasks):
                     create_sse_message("status", ">>> Graph workflow Start <<<")
                 )
 
-                # astream을 사용하여 비동기 스트리밍
+                # astream을 사용하여 비동기 스트리밍 (Persistence 적용)
                 async for state in base_graph.astream(
                     initial_state,
                     stream_mode='values',
                     config={
-                        'callbacks': [advanced_state_callback]
+                        'callbacks': [advanced_state_callback],
+                        'configurable': {'thread_id': request.room_id}  # [Persistence] room_id를 스레드 ID로 사용
                     }
                 ):
                     logger.debug(f">>>Graph 상태: {state}")
