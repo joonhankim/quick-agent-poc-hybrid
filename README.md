@@ -1,6 +1,6 @@
-# HD현대 법무 지원 Agent
+# HD현대 법무 지원 Agent (Hybrid Edition)
 
-Azure OpenAI와 LangGraph 기반의 HD현대 법무 지원 AI Agent 시스템
+Azure OpenAI, LangGraph 그리고 CrewAI 기반의 HD현대 법무 지원 AI Agent 시스템
 
 ## 📋 프로젝트 개요
 
@@ -15,7 +15,7 @@ HD현대의 법무팀을 위한 AI 기반 지원 시스템입니다. 계약서 �
 ## 🏗️ 시스템 아키텍처
 
 ```
-hanhwa-general-insurance-agent/
+quick-agent-poc-hybrid/
 ├── api/                      # Backend API (FastAPI)
 │   ├── main.py              # FastAPI 메인 애플리케이션
 │   ├── routers/
@@ -25,52 +25,37 @@ hanhwa-general-insurance-agent/
 │   └── core/
 │       ├── logger.py        # 로깅 유틸리티
 │       └── singleton.py     # 싱글톤 패턴
-├── agent/                   # AI Agent 로직 (LangGraph)
-│   ├── main.py              # LLM 초기화
+├── agent/                   # AI Agent 로직 (Hybrid LangGraph + CrewAI)
 │   ├── graph/
-│   │   └── core_graph.py    # LangGraph 워크플로우 정의
+│   │   └── core_graph.py    # Hybrid 워크플로우 (Orchestrator)
 │   ├── node/
-│   │   └── core_node.py     # 그래프 노드 구현
-│   ├── schema/              # 데이터 스키마
-│   ├── utils/               # 유틸리티 함수
-│   ├── llm_endpoint.py      # Azure OpenAI 래퍼
-│   ├── stream.py            # 스트리밍 처리
-│   └── history_manager.py   # 대화 이력 관리
-├── backend/                 # Backend 보조 모듈
-│   ├── main.py              # backend 진입점
-│   ├── utils/
-│   └── db/
-├── db/                      # 데이터베이스 연결
-│   └── connect/
-│       └── connect_cosmosdb.py  # CosmosDB 클라이언트
-├── config/                  # 설정 관리
-│   └── settings.py          # 환경별 설정 관리자 (Azure Key Vault 지원)
-├── middleware/              # 미들웨어
-│   └── cors.py             # CORS 처리
+│   │   └── core_node.py     # CrewAI 호출을 포함한 그래프 노드
+│   ├── crews/               # [NEW] CrewAI 전문 에이전트 팀
+│   │   ├── legal_rag_crew.py # 검색/분석/작성 협업 크루
+│   ├── tools/               # [NEW] 에이전트 전용 도구
+│   │   └── azure_search_tool.py # Azure AI Search 연동 (RAG)
+│   ├── schema/
+│   │   └── state.py         # Crew 메타데이터가 포함된 상태 정의
 ├── frontend/                # Frontend (Next.js 15)
-│   ├── app/
-│   │   ├── assistant.tsx    # 메인 어시스턴트 컴포넌트
-│   │   ├── page.tsx         # 메인 페이지
-│   │   ├── layout.tsx       # 레이아웃
-│   │   └── api/
-│   │       ├── chat/        # 채팅 API 프록시
-│   │       └── agent/       # Agent API 프록시
-│   ├── components/          # React 컴포넌트
-│   │   ├── ui/              # 기본 UI 컴포넌트 (Radix UI)
-│   │   └── assistant-ui/    # 어시스턴트 전용 컴포넌트
-│   ├── lib/                 # 유틸리티 라이브러리
-│   ├── hooks/               # React Hooks
-│   └── quick_agent_poc/     # POC 버전 (레거시)
 ├── start.sh                 # 통합 실행 스크립트
 ├── pyproject.toml           # Python 의존성 (uv)
 └── .env                     # 환경변수 (gitignore)
 ```
 
+### 🤖 하이브리드 아키텍처 (Hybrid Orchestration)
+본 시스템은 **LangGraph**의 견고한 워크플로우 제어와 **CrewAI**의 자율적인 에이전트 협업 지능을 결합한 하이브리드 구조를 채택하고 있습니다.
+
+- **LangGraph (Orchestrator)**: 전체적인 비즈니스 로직의 흐름을 제어하고 대화 상태(State)를 안전하게 관리합니다.
+- **CrewAI (Expert Team)**: 특정 복잡한 작업(법률 리서치, 조항 분석 등)이 필요한 노드에서 3인의 전문 에이전트 팀(검색 전문가, 법률 분석가, 법률 작성자)이 자율적으로 협업하여 고품질의 결과를 도출합니다.
+
+
 ## ✨ 핵심 기능
 
 ### 🤖 AI Agent 기능
-- **LangGraph 기반 워크플로우**: 복잡한 추론 과정을 단계적으로 처리
-- **GPT-4o 통합**: 최신 언어 모델을 통한 고품질 응답 생성
+- **LangGraph + CrewAI 하이브리드**: 전역 워크플로우 제어와 에이전트 간 자율 협업의 결합
+- **전문 법률 크루 가동**: 검색 전문가, 법률 분석가, 답변 작성자로 구성된 전문 팀 협업
+- **Azure AI Search 기반 RAG**: 고도화된 벡터 검색을 통한 신뢰할 수 있는 법률 근거 제시
+- **GPT-4o 통합**: 최신 언어 모델을 통한 고품질 추론 및 응답 생성
 - **실시간 스트리밍**: Server-Sent Events(SSE)를 통한 즉각적인 응답 제공
 - **대화 이력 관리**: CosmosDB를 활용한 지속적인 대화 컨텍스트 유지
 
@@ -93,8 +78,10 @@ hanhwa-general-insurance-agent/
 - **ASGI Server**: uvicorn (비동기 웹 서버)
 - **AI/ML**: 
   - LangChain 0.3+ (LLM 애플리케이션 프레임워크)
-  - LangGraph (복잡한 AI 워크플로우 구성)
+  - LangGraph (워크플로우 오케스트레이션)
+  - CrewAI (다중 에이전트 협업 체계)
   - Azure OpenAI (GPT-4o 모델)
+  - Azure AI Search (고도화된 RAG 엔진)
 - **Python**: 3.13+ (최신 Python 버전)
 - **Package Manager**: uv (고속 패키지 매니저)
 - **Database**: Azure Cosmos DB (NoSQL 데이터베이스)
