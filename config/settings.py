@@ -26,10 +26,14 @@ class ConfigManager:
 
         # 필요한 환경 변수 목록
         self.required_keys = [
-            "agent-azure-openai-api-key",
-            "agent-azure-openai-endpoint",
-            "agent-azure-openai-api-version",
-            "agent-azure-openai-model-name",
+            "AGENT_AZURE_OPENAI_API_KEY",
+            "AGENT_AZURE_OPENAI_ENDPOINT",
+            "AGENT_AZURE_OPENAI_API_VERSION",
+            "AGENT_AZURE_OPENAI_MODEL_NAME",
+            "GPT4O_AZURE_OPENAI_API_KEY",
+            "GPT4O_AZURE_OPENAI_ENDPOINT",
+            "GPT4O_AZURE_OPENAI_API_VERSION",
+            "GPT4O_AZURE_OPENAI_MODEL_NAME",
         ]
 
         self._load_config()

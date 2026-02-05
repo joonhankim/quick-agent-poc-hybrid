@@ -132,7 +132,7 @@ def conversation_memory_builder(**kwargs):
 
     # 시스템 정보
     system_info = SystemInfo(
-        model_name=kwargs.get("model_name", "gpt-5"),
+        model_name=kwargs.get("model_name", "gpt-5.1"),
         embedder_name=kwargs.get("embedder_name", "text-embedding-3-small"),
     )
 

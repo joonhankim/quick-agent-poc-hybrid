@@ -2,8 +2,13 @@ from typing import Callable
 from functools import wraps
 from langchain_openai import AzureChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
+from crewai import LLM
+import litellm
 from config.settings import get_config
 from api.core.logger import APILogger
+
+# GPT-5.1 지원을 위한 litellm 전역 설정
+litellm.drop_params = True
 
 logger = APILogger()
 
@@ -47,16 +52,28 @@ class SafeLLMWrapper:
             model_name: 사용할 모델명
         """
         config = get_config()
-        self._llm = AzureChatOpenAI(
-            model=config.get("agent-azure-openai-model-name"),
-            api_key=config.get("agent-azure-openai-api-key"),
-            api_version=config.get("agent-azure-openai-api-version"),
-            azure_endpoint=config.get("agent-azure-openai-endpoint"),
-            streaming=True,
-            max_retries=3,
-            # reasoning_effort="minimal",
+        
+        # Ensure model name has 'azure/' prefix for CrewAI compatibility
+        azure_model = model_name
+        if not azure_model.startswith("azure/"):
+            azure_model = f"azure/{azure_model}"
+
+        # Determine which config to use
+        config_prefix = "AGENT"
+        if model_name.lower() == "gpt-4o":
+            config_prefix = "GPT4O"
+            
+        self._llm = LLM(
+            model=azure_model,
+            base_url=config.get(f"{config_prefix}_AZURE_OPENAI_ENDPOINT"),
+            api_key=config.get(f"{config_prefix}_AZURE_OPENAI_API_KEY"),
+            api_version=config.get(f"{config_prefix}_AZURE_OPENAI_API_VERSION"),
+            extra_kwargs={
+                "drop_params": True,
+                "additional_drop_params": ["stop", "temperature", "top_p"]
+            },
         )
-        logger.info(f">>>> Load Model Name : {self._llm.model_name}")
+        logger.info(f">>>> Load Model Name : {azure_model} (using {config_prefix} config)")
         self._model_name = model_name
         
         # 위 self._llm은 'with_structured_output'등 적용으로 변경될 수 있어, 에러메세지 생성용 초기 LLM 보관

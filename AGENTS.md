@@ -16,7 +16,7 @@
 - 금융권을 Target으로 만들어질 서비스로 모든 요소에서 Private 환경 구축 필수.
 
 ## 4. Resoruce
-- LLM :  Azure Openai gpt-5.2
+- LLM :  Azure Openai gpt-5.1
 
 ## 5. DB
 - Azure CosmosDB : 싱글턴 단위 대화 이력과 메타데이터를 적재한다.(chat-id를 key로 질문과 답변을 포함한 메타데이터 적재)

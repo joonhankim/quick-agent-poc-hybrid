@@ -217,6 +217,7 @@ async def save_conversation_after_streaming(
         return
 
     try:
+        from agent.main import model_name
         history_manager = ChatHistoryManager()
 
         # final_state 형식으로 저장 데이터 구성
@@ -235,10 +236,13 @@ async def save_conversation_after_streaming(
                 "metadata": response_data.get("metadata", {}),
                 "rag_document_ids": response_data.get("rag_document_ids", []),
                 "chat_type": response_data.get("chat_type", 0),
+                "model_name": model_name,
             }
         else:
-            # final_state에 output 추가
+            # final_state에 output 및 model_name 추가
             final_state["output"] = response_data.get("content", "")
+            if "model_name" not in final_state:
+                final_state["model_name"] = model_name
 
         # 대화 저장
         await history_manager.save_conversation(

@@ -2,14 +2,19 @@
 법무지원 RAG 전문 에이전트 크루
 Azure AI Search를 활용한 법률 문서 검색 및 분석
 """
-from crewai import Agent, Task, Crew, Process
+from crewai import Agent, Task, Crew, Process, LLM
 from typing import Optional
 
-from agent.main import llm
 from agent.tools.azure_search_tool import get_azure_search_tool
 from api.core.logger import APILogger
+from config.settings import get_config
 
 logger = APILogger()
+
+from agent.llm_endpoint import get_safe_llm
+
+# Initialize GPT-4o LLM for CrewAI
+llm = get_safe_llm("gpt-4o")._llm
 
 
 def create_legal_rag_crew(user_query: str) -> Crew:

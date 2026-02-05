@@ -29,7 +29,7 @@ async def get_room_history(user_no: str, room_id: str):
         messages = []
         for message in room_history:
             messages.append({
-                "role": "user" if message.type == "HumanMessage" else "assistant",
+                "role": "user" if message.type == "human" else "assistant",
                 "content": message.content,
             })
         return {

@@ -5,7 +5,7 @@ LangGraph 노드 내에서 호출되어 자율적으로 협업하는 에이전�
 from crewai import Agent, Task, Crew, Process
 from typing import Optional
 
-from agent.main import llm
+from agent.main import raw_llm as llm
 from api.core.logger import APILogger
 
 logger = APILogger()

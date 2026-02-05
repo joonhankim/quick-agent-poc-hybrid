@@ -20,6 +20,24 @@ SSH_TUNNEL_PID="/tmp/ssh_tunnel.pid"
 # 바이트코드 캐싱 방지
 export PYTHONDONTWRITEBYTECODE=1
 
+# .env 파일에서 환경변수 로드 (CrewAI 등 외부 라이브러리용)
+if [ -f ".env" ]; then
+    echo -e "${BLUE}.env 파일에서 환경변수 로드 중...${NC}"
+    # .env 파일에서 유효한 bash 변수명(하이픈 제외)만 export
+    # 주석, 빈 줄 제외하고 KEY=VALUE 형식의 라인만 처리
+    while IFS= read -r line || [ -n "$line" ]; do
+        # 주석과 빈 줄 건너뛰기
+        if [[ "$line" =~ ^[[:space:]]*# ]] || [[ -z "$line" ]] || [[ "$line" =~ ^[[:space:]]*$ ]]; then
+            continue
+        fi
+        # KEY=VALUE 형식 파싱 (하이픈이 있는 키는 제외)
+        if [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+            export "$line"
+        fi
+    done < .env
+    echo -e "${GREEN}✓ 환경변수 로드 완료${NC}"
+fi
+
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}  Quick Agent POC 서버 시작${NC}"
 echo -e "${GREEN}========================================${NC}"
