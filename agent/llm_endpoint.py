@@ -265,3 +265,34 @@ class SafeLLMWrapper:
 def get_safe_llm(model_name: str = "gpt-4o") -> SafeLLMWrapper:
     """안전한 LLM 인스턴스 반환"""
     return SafeLLMWrapper(model_name=model_name)
+
+
+def get_langchain_llm(model_name: str = "gpt-4o") -> AzureChatOpenAI:
+    """
+    LangChain 호환 LLM 인스턴스 반환 (ainvoke 등 지원)
+    Router, General Chat 등 CrewAI가 아닌 일반 노드에서 사용
+    """
+    config = get_config()
+    
+    # Check config prefix
+    config_prefix = "AGENT"
+    if model_name.lower() == "gpt-4o":
+        config_prefix = "GPT4O"
+
+    azure_model = model_name
+    if not azure_model.startswith("azure/"):
+        azure_model = f"azure/{azure_model}"
+        
+    # Remove azure/ prefix for AzureChatOpenAI deployment_name if needed
+    # But usually AzureChatOpenAI takes deployment_name or azure_deployment
+    # Using litellm convention might allow azure/ but standard LangChain might need specific args.
+    # Let's check how AzureChatOpenAI is initialized usually.
+    # Standard AzureChatOpenAI uses azure_deployment, api_version, etc.
+    
+    return AzureChatOpenAI(
+        azure_deployment=config.get(f"{config_prefix}_AZURE_OPENAI_DEPLOYMENT_NAME") or "gpt-4o", # Fallback or strict config
+        api_version=config.get(f"{config_prefix}_AZURE_OPENAI_API_VERSION"),
+        azure_endpoint=config.get(f"{config_prefix}_AZURE_OPENAI_ENDPOINT"),
+        api_key=config.get(f"{config_prefix}_AZURE_OPENAI_API_KEY"),
+        temperature=0.7,
+    )

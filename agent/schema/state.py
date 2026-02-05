@@ -39,6 +39,7 @@ class AgentState(BaseModel):
 
     # 라우팅 정보
     next_step: Optional[str] = None
+    route: Optional[str] = "legal"  # "general" or "legal" (default)
 
     # 임베딩 캐시 (기존 코드 재사용)
     embedding_refs: Dict[str, str] = {}

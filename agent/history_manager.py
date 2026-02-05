@@ -1,5 +1,6 @@
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from datetime import datetime, timezone
+import uuid
 from typing import List, Dict, Any
 
 from api.core.logger import APILogger
@@ -53,13 +54,15 @@ class ChatHistoryManager:
         대화 히스토리를 CosmosDB에 저장 (chat_id 기준)
         """
         save_data = conversation_memory_builder(**final_state).model_dump()
-        save_data = {"id": save_data.get("identifiers").get("id"), **save_data}
+        # [Fix] chat_id 대신 고유 UUID를 id로 사용하여 Conflict 에러 방지
+        unique_id = str(uuid.uuid4())
+        save_data["id"] = unique_id
+        
         try:
-            logger.info(f">>> Save Data: {save_data}")
-            logger.info(f">>> Final State: {final_state}")
-            logger.info(f">>> container: {self.container}")
-            self.container.create_item(save_data, final_state.get("chat_id"))
-            logger.debug(f">>> 대화 히스토리 저장 완료: {chat_id}")
+            logger.info(f">>> Save History (unique_id: {unique_id}, chat_id: {chat_id})")
+            # create_item 대신 upsert_item 사용 (안전성 강화)
+            self.container.upsert_item(save_data)
+            logger.debug(f">>> 대화 히스토리 저장 완료: {chat_id} (ID: {unique_id})")
         except Exception as e:
             logger.error(f"\n>>> 대화 히스토리 저장 실패: {e}")
             raise

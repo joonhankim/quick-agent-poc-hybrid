@@ -1,6 +1,6 @@
 from langchain_core.messages import HumanMessage, SystemMessage
 from agent.schema.state import AgentState
-from agent.main import llm
+from agent.main import llm, langchain_llm
 from api.core.logger import APILogger
 
 logger = APILogger()
@@ -8,6 +8,96 @@ logger = APILogger()
 import asyncio
 
 def start_node(state: AgentState) -> AgentState:
+    return state
+
+
+async def router_node(state: AgentState) -> AgentState:
+    """
+    사용자의 질문 의도를 분석하여 라우팅 경로를 결정하는 노드
+    - general: 일반적인 대화 (인사, 농담 등) -> general_chat_node로 이동
+    - legal: 법률 관련 질문 -> crew_collaboration_node로 이동
+    """
+    query = state.user_query
+    
+    # 간단한 키워드 + LLM 기반 의도 분류
+    # 1. 명확한 법률 키워드가 있으면 바로 legal로 분류 (Fast Path)
+    legal_keywords = ["법", "조항", "판례", "소송", "형법", "민법", "상법", "위반", "처벌", "배상"]
+    if any(keyword in query for keyword in legal_keywords):
+        state.route = "legal"
+        logger.info(f"라우팅 결정 (Keyword): legal - {query}")
+        return state
+
+    # 2. 그 외에는 LLM을 통해 의도 파악 (Slow Path but Accurate)
+    try:
+        system_prompt = """
+        너는 사용자 질문의 의도를 분류하는 라우터야.
+        질문이 '법률적 조언', '법적 지식', '판례 검색' 등 법과 관련된 내용이면 "legal"을,
+        단순한 '인사', '일상 대화', '농담' 등 법과 무관한 내용이면 "general"을 출력해.
+        오직 "legal" 또는 "general" 단어 하나만 응답해.
+        """
+        
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=query),
+        ]
+        
+        response = await langchain_llm.ainvoke(messages)
+        intent = response.content.strip().lower()
+        
+        if "legal" in intent:
+            state.route = "legal"
+        else:
+            state.route = "general"
+            
+        logger.info(f"라우팅 결정 (LLM): {state.route} - {query}")
+        
+    except Exception as e:
+        logger.error(f"라우팅 중 오류 발생: {e}, 기본값 legal로 진행")
+        state.route = "legal"
+        
+    return state
+
+
+async def general_chat_node(state: AgentState) -> AgentState:
+    """
+    일반적인 대화(General Chat)를 처리하는 노드
+    - RAG나 도구 없이 LLM의 기본 지식으로 답변
+    """
+    query = state.user_query
+    history = state.history
+    
+    system_prompt = """
+    너는 친절하고 도움을 주는 AI 어시스턴트야.
+    사용자의 일상적인 질문이나 인사에 대해 자연스럽고 정중하게 한국어로 답변해줘.
+    법률적인 조언이 필요한 질문이라고 판단되면, "저는 법률 전문가가 아니지만 일반적인 내용은 알려드릴 수 있습니다."라고 운을 떼고 답변해.
+    하지만 되도록이면 가벼운 대화에 집중해.
+    """
+    
+    messages = [
+        SystemMessage(content=system_prompt),
+        SystemMessage(content=f"최근 대화 이력: {history}"),
+        HumanMessage(content=query),
+    ]
+    
+    try:
+        logger.info(f"General Chat 생성 시작 - 쿼리: {query}")
+        response = await langchain_llm.ainvoke(messages)
+        state.final_response = response.content
+        
+        # 메타데이터 설정
+        state.execution_metadata = {
+            "node": "general_chat_node",
+            "model": "gpt-4o" # or whatever config uses
+        }
+        
+        # Validation Pass (일반 대화는 보통 검증 통과)
+        state.validation_status = "passed" 
+        
+    except Exception as e:
+        logger.error(f"General Chat 생성 실패: {e}")
+        state.final_response = "죄송합니다. 잠시 오류가 발생하여 답변을 드릴 수 없습니다."
+        state.validation_status = "failed"
+        
     return state
 
 # 기존 LLM 호출 노드 (사용하지 않지만 async 변환 예시로 둠)

@@ -36,6 +36,15 @@ async def chat(request: QueryRequest, background_tasks: BackgroundTasks):
         room_id=request.room_id,
         user_query=request.user_query,
         exe_date=datetime.now().isoformat(),
+        # [Persistence Fix] 새로운 턴 시작 시 이전 실행의 결과값 초기화
+        final_response="",
+        step_messages=[],
+        route=None,
+        retry_count=0,
+        validation_status="pending",
+        crew_metadata={},
+        execution_metadata={},
+        error_logs=[]
     )
 
     completion_event = asyncio.Event()
