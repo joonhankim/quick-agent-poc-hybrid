@@ -13,8 +13,10 @@ logger = APILogger()
 
 from agent.llm_endpoint import get_safe_llm
 
-# Initialize GPT-4o LLM for CrewAI
-llm = get_safe_llm("gpt-4o")._llm
+# Initialize LLM for CrewAI (config에서 모델명 로드)
+config = get_config()
+_model_name = config.get("AGENT_AZURE_OPENAI_MODEL_NAME", "gpt-5.1")
+llm = get_safe_llm(_model_name)._llm
 
 
 def create_legal_rag_crew(user_query: str) -> Crew:

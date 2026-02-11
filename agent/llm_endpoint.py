@@ -68,11 +68,22 @@ class SafeLLMWrapper:
             base_url=config.get(f"{config_prefix}_AZURE_OPENAI_ENDPOINT"),
             api_key=config.get(f"{config_prefix}_AZURE_OPENAI_API_KEY"),
             api_version=config.get(f"{config_prefix}_AZURE_OPENAI_API_VERSION"),
-            extra_kwargs={
-                "drop_params": True,
-                "additional_drop_params": ["stop", "temperature", "top_p"]
-            },
         )
+
+        # GPT-5.x 등 reasoning 모델은 stop, temperature, top_p를 지원하지 않음
+        # CrewAI Agent가 stop=['\nObservation:'] 등을 강제 설정하므로,
+        # _prepare_completion_params를 패치하여 미지원 파라미터를 제거
+        UNSUPPORTED_PARAMS = {"stop", "temperature", "top_p"}
+        _original_prepare = self._llm._prepare_completion_params
+
+        def _patched_prepare(*args, **kwargs):
+            params = _original_prepare(*args, **kwargs)
+            for p in UNSUPPORTED_PARAMS:
+                params.pop(p, None)
+            return params
+
+        self._llm._prepare_completion_params = _patched_prepare
+
         logger.info(f">>>> Load Model Name : {azure_model} (using {config_prefix} config)")
         self._model_name = model_name
         
