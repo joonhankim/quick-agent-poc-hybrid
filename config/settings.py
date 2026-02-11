@@ -34,6 +34,9 @@ class ConfigManager:
             "GPT4O_AZURE_OPENAI_ENDPOINT",
             "GPT4O_AZURE_OPENAI_API_VERSION",
             "GPT4O_AZURE_OPENAI_MODEL_NAME",
+            "AZURE_SEARCH_ENDPOINT",
+            "AZURE_SEARCH_API_KEY",
+            "AZURE_SEARCH_INDEX_NAME",
         ]
 
         self._load_config()

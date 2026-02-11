@@ -132,12 +132,14 @@ async def crew_collaboration_node(state: AgentState) -> AgentState:
     (Async Non-blocking 방식으로 실행)
     """
     from agent.crews.legal_rag_crew import run_legal_rag_crew
-    
+    from agent.utils.callbacks import push_status
+
     logger.info(f"법무지원 RAG 크루 실행 시작 - 쿼리: {state.user_query}")
-    
+    push_status("법률 전문가 팀 분석을 시작합니다...")
+
     try:
         # [Async Refactoring]
-        # CrewAI의 run_legal_rag_crew는 동기 함수이므로, 
+        # CrewAI의 run_legal_rag_crew는 동기 함수이므로,
         # 메인 이벤트 루프를 차단하지 않기 위해 별도 스레드에서 실행합니다.
         crew_result = await asyncio.to_thread(run_legal_rag_crew, state.user_query)
         

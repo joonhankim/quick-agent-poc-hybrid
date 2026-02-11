@@ -130,12 +130,28 @@ def create_legal_rag_crew(user_query: str) -> Crew:
         expected_output='사용자 친화적인 최종 법률 답변 (출처 및 면책 조항 포함)'
     )
     
+    # 태스크 완료 시 SSE status 이벤트 전송
+    from agent.utils.callbacks import push_status
+
+    _task_status_messages = [
+        "법률 문서 검색 완료. 법률 분석을 시작합니다...",
+        "법률 분석 완료. 최종 답변을 작성합니다...",
+    ]
+    _task_step = {"count": 0}
+
+    def _on_task_complete(task_output):
+        idx = _task_step["count"]
+        if idx < len(_task_status_messages):
+            push_status(_task_status_messages[idx])
+        _task_step["count"] += 1
+
     # 크루 생성 - 순차적 프로세스 (검색 → 분석 → 작성)
     crew = Crew(
         agents=[search_specialist, legal_analyst, legal_writer],
         tasks=[search_task, analysis_task, writing_task],
         process=Process.sequential,
-        verbose=True
+        verbose=True,
+        task_callback=_on_task_complete,
     )
     
     logger.info(f"법무지원 RAG 크루 생성 완료 - 질문: {user_query}")

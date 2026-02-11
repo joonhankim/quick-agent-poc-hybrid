@@ -3,13 +3,17 @@ from fastapi.responses import StreamingResponse
 from typing import Dict, Any
 from datetime import datetime
 import asyncio
+import uuid
 
 from agent.schema.chat import QueryRequest
 from api.core.logger import APILogger
 from agent.schema.state import AgentState
-from agent.utils.formatter import create_sse_message
+from agent.utils.formatter import (
+    sse_start, sse_finish, sse_status, sse_error,
+    sse_text_start, sse_text_delta, sse_text_end,
+)
 from agent.graph.core_graph import base_graph
-from agent.utils.callbacks import AdvancedStateCallback
+from agent.utils.callbacks import AdvancedStateCallback, StatusNotifier, set_status_notifier
 from agent.history_manager import ChatHistoryManager
 
 
@@ -21,12 +25,7 @@ router = APIRouter()
 async def chat(request: QueryRequest, background_tasks: BackgroundTasks):
     """
     채팅 API 엔드포인트 (SSE 스트리밍)
-
-    Args:
-        request: 채팅 요청 (chat_id + 단일 메시지)
-
-    Returns:
-        StreamingResponse: SSE 형식의 스트리밍 응답
+    Vercel AI SDK UI Message Stream 프로토콜 호환
     """
 
     initial_state = AgentState(
@@ -36,7 +35,6 @@ async def chat(request: QueryRequest, background_tasks: BackgroundTasks):
         room_id=request.room_id,
         user_query=request.user_query,
         exe_date=datetime.now().isoformat(),
-        # [Persistence Fix] 새로운 턴 시작 시 이전 실행의 결과값 초기화
         final_response="",
         step_messages=[],
         route=None,
@@ -59,34 +57,40 @@ async def chat(request: QueryRequest, background_tasks: BackgroundTasks):
         token_queue = asyncio.Queue()
         sse_queue = asyncio.Queue()
         done_flag = asyncio.Event()
-        # 현재 이벤트 루프를 콜백에 전달
         event_loop = asyncio.get_running_loop()
+
+        # 텍스트 파트 ID (하나의 응답 메시지에 대해 고정)
+        text_part_id = f"text-{uuid.uuid4().hex[:8]}"
+        text_started = {"value": False}
+
         advanced_state_callback = AdvancedStateCallback(
             token_queue=token_queue,
             event_loop=event_loop
         )
 
         async def drain_tokens():
-            """token_queue에서 토큰을 가져와 SSE 형식으로 변환하여 sse_queue에 전달"""
+            """token_queue → Vercel AI SDK text-delta 변환 → sse_queue"""
             try:
                 while not done_flag.is_set():
                     try:
                         item = await asyncio.wait_for(
                             token_queue.get(), timeout=0.05
                         )
-                        # item은 {"type": "content", "data": {"message": token}} 형태
                         if isinstance(item, dict):
                             item_type = item.get("type", "content")
                             item_data = item.get("data", {})
-                            # content 타입이고 message가 있는 경우만 처리
                             if item_type == "content" and item_data.get("message"):
+                                token = item_data["message"]
+                                # 첫 토큰이면 text-start 전송
+                                if not text_started["value"]:
+                                    await sse_queue.put(sse_text_start(text_part_id))
+                                    text_started["value"] = True
                                 await sse_queue.put(
-                                    create_sse_message("content", item_data.get("message"))
+                                    sse_text_delta(text_part_id, token)
                                 )
                     except asyncio.TimeoutError:
                         continue
             finally:
-                # done_flag가 설정된 후 남은 토큰 처리
                 while True:
                     try:
                         item = token_queue.get_nowait()
@@ -94,64 +98,73 @@ async def chat(request: QueryRequest, background_tasks: BackgroundTasks):
                             item_type = item.get("type", "content")
                             item_data = item.get("data", {})
                             if item_type == "content" and item_data.get("message"):
+                                token = item_data["message"]
+                                if not text_started["value"]:
+                                    await sse_queue.put(sse_text_start(text_part_id))
+                                    text_started["value"] = True
                                 await sse_queue.put(
-                                    create_sse_message("content", item_data.get("message"))
+                                    sse_text_delta(text_part_id, token)
                                 )
                     except asyncio.QueueEmpty:
                         break
 
         async def run_graph():
             try:
-                await sse_queue.put(
-                    create_sse_message("status", ">>> Graph workflow Start <<<")
-                )
+                # StatusNotifier 설정 (crew 스레드에서도 SSE status push 가능)
+                notifier = StatusNotifier(sse_queue=sse_queue, event_loop=event_loop)
+                set_status_notifier(notifier)
 
-                # astream을 사용하여 비동기 스트리밍 (Persistence 적용)
+                # ── 메시지 시작 ──
+                await sse_queue.put(sse_start())
+                await sse_queue.put(sse_status("질문을 분석하고 있습니다..."))
+
                 async for state in base_graph.astream(
                     initial_state,
                     stream_mode='values',
                     config={
                         'callbacks': [advanced_state_callback],
-                        'configurable': {'thread_id': request.room_id}  # [Persistence] room_id를 스레드 ID로 사용
+                        'configurable': {'thread_id': request.room_id}
                     }
                 ):
                     logger.debug(f">>>Graph 상태: {state}")
-                    # state가 dict인 경우와 객체인 경우 모두 처리
                     if isinstance(state, dict):
                         step_messages = state.get("step_messages", [])
                         final_response = state.get("final_response")
-                        final_response_metadata = state.get("final_response_metadata", {})
                     else:
                         step_messages = state.step_messages
                         final_response = state.final_response
-                        final_response_metadata = getattr(state, "final_response_metadata", {})
 
+                    # step_messages → data-status 이벤트
                     if step_messages:
-                        await sse_queue.put(
-                            create_sse_message("status", step_messages[-1])
-                        )
+                        await sse_queue.put(sse_status(step_messages[-1]))
+
+                    # 최종 응답 → text-start / text-delta / text-end
                     if final_response:
-                        # 메타데이터와 함께 완료 메시지 전송
+                        if not text_started["value"]:
+                            await sse_queue.put(sse_text_start(text_part_id))
+                            text_started["value"] = True
                         await sse_queue.put(
-                            create_sse_message("complete", {
-                                "message": final_response,
-                                "metadata": final_response_metadata
-                            })
+                            sse_text_delta(text_part_id, final_response)
                         )
                         response_data["content"] = final_response
+
+                # ── 텍스트 종료 + 메시지 완료 ──
+                if text_started["value"]:
+                    await sse_queue.put(sse_text_end(text_part_id))
+                await sse_queue.put(sse_finish())
 
                 return advanced_state_callback.final_state
 
             except Exception as e:
                 logger.error(f">>> Run Graph Error: {type(e).__name__}: {e}")
-                await sse_queue.put(
-                    create_sse_message("error", f"{type(e).__name__}: {str(e)}")
-                )
+                await sse_queue.put(sse_error(f"{type(e).__name__}: {str(e)}"))
+                # 에러 시에도 finish 전송
+                await sse_queue.put(sse_finish())
                 raise
 
             finally:
                 done_flag.set()
-            
+
         graph_task = asyncio.create_task(run_graph())
         drain_task = asyncio.create_task(drain_tokens())
 
@@ -165,48 +178,43 @@ async def chat(request: QueryRequest, background_tasks: BackgroundTasks):
                 logger.debug(f"SSE 메시지: {item}")
                 yield item
             except asyncio.TimeoutError:
-                # Timeout은 정상 동작 - 큐가 비어있을 때 발생
                 continue
             except asyncio.CancelledError:
-                # Task가 취소된 경우
                 logger.warning("SSE 스트리밍이 취소되었습니다")
                 break
             except Exception as e:
-                # 실제 에러만 로그 기록
                 logger.error(f">>> Get SSE Queue Error: {type(e).__name__}: {e}")
                 continue
 
         logger.info(f"SSE 스트리밍 완료 - 총 {message_count}개 메시지 전송")
 
-        # Task 완료 대기
         result = await asyncio.gather(graph_task, drain_task, return_exceptions=True)
         graph_result = result[0]
 
-        # Graph 실행 결과 로깅
         if isinstance(graph_result, Exception):
             logger.error(f"Graph 실행 실패: {type(graph_result).__name__}: {str(graph_result)}")
         elif graph_result:
             logger.info(f"채팅 요청 완료 - chat_id: {request.chat_id}, content: {request.user_query[:100]}...")
 
-        completion_event.set()      
+        completion_event.set()
 
     background_tasks.add_task(
         save_conversation_after_streaming,
         request,
         response_data,
         completion_event,
-        )
+    )
 
     return StreamingResponse(
-                deliver_chat_response_stream(),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "X-Accel-Buffering": "no",
-                    "x-vercel-ai-data-stream": "v1",  # AI SDK 프로토콜 버전
-                }
-            )   
+        deliver_chat_response_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "x-vercel-ai-data-stream": "v1",
+        }
+    )
 
 
 async def save_conversation_after_streaming(
@@ -218,7 +226,7 @@ async def save_conversation_after_streaming(
 
     try:
         await asyncio.wait_for(completion_event.wait(), timeout=30.0)
-    
+
     except Exception as e:
         logger.error(
             "\n>>>Streaming 완료 대기 시간이 초과하여 대화내역 저장 실패하였습니다.\n"
@@ -229,10 +237,8 @@ async def save_conversation_after_streaming(
         from agent.main import model_name
         history_manager = ChatHistoryManager()
 
-        # final_state 형식으로 저장 데이터 구성
         final_state = response_data.get("final_state", {})
         if not final_state:
-            # final_state가 없으면 기본 정보로 구성
             final_state = {
                 "id": request.chat_id,
                 "user_no": request.user_no,
@@ -248,12 +254,10 @@ async def save_conversation_after_streaming(
                 "model_name": model_name,
             }
         else:
-            # final_state에 output 및 model_name 추가
             final_state["output"] = response_data.get("content", "")
             if "model_name" not in final_state:
                 final_state["model_name"] = model_name
 
-        # 대화 저장
         await history_manager.save_conversation(
             chat_id=request.chat_id, final_state=final_state
         )

@@ -17,6 +17,7 @@ import {
   ErrorPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
+  useMessage,
 } from "@assistant-ui/react";
 
 import type { FC } from "react";
@@ -237,6 +238,40 @@ const MessageError: FC = () => {
   );
 };
 
+const StatusIndicator: FC = () => {
+  const message = useMessage();
+  const status = (message as any)?.metadata?.status as string | undefined;
+  const isRunning = message?.status?.type === "running";
+
+  if (!status || !isRunning) return null;
+
+  return (
+    <div className="mx-2 mb-2 flex items-center gap-2 text-sm text-muted-foreground animate-pulse">
+      <svg
+        className="h-4 w-4 animate-spin"
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        viewBox="0 0 24 24"
+      >
+        <circle
+          className="opacity-25"
+          cx="12"
+          cy="12"
+          r="10"
+          stroke="currentColor"
+          strokeWidth="4"
+        />
+        <path
+          className="opacity-75"
+          fill="currentColor"
+          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+        />
+      </svg>
+      <span>{status}</span>
+    </div>
+  );
+};
+
 const AssistantMessage: FC = () => {
   return (
     <MessagePrimitive.Root asChild>
@@ -244,6 +279,7 @@ const AssistantMessage: FC = () => {
         className="aui-assistant-message-root relative mx-auto w-full max-w-[var(--thread-max-width)] animate-in py-4 duration-150 ease-out fade-in slide-in-from-bottom-1 last:mb-24"
         data-role="assistant"
       >
+        <StatusIndicator />
         <div className="aui-assistant-message-content mx-2 leading-7 break-words text-foreground">
           <MessagePrimitive.Parts
             components={{

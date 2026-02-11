@@ -1,0 +1,5 @@
+Resolved 10 packages in 204ms
+Prepared 2 packages in 223ms
+Installed 2 packages in 14ms
+ + azure-common==1.1.28
+ + azure-search-documents==11.6.0

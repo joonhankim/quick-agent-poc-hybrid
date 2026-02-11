@@ -20,4 +20,5 @@ dependencies = [
     "openai==2.8.0",
     "asyncpg>=0.31.0",
     "litellm>=1.81.8",
+    "azure-search-documents>=11.4.0",
 ]

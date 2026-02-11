@@ -1,9 +1,46 @@
-from typing import Dict, Any
+import asyncio
+import contextvars
+from typing import Dict, Any, Optional
 from langchain_core.callbacks.base import BaseCallbackHandler
 
 from api.core.logger import APILogger
 
 logger = APILogger()
+
+# ── Status Notifier (SSE 상태 이벤트 push용) ──────────────────────────
+_status_notifier_var: contextvars.ContextVar[Optional["StatusNotifier"]] = (
+    contextvars.ContextVar("status_notifier", default=None)
+)
+
+
+class StatusNotifier:
+    """
+    SSE sse_queue에 status 이벤트를 직접 push하는 유틸리티.
+    asyncio.to_thread로 생성된 동기 스레드에서도 안전하게 사용 가능.
+    """
+
+    def __init__(self, sse_queue: asyncio.Queue, event_loop: asyncio.AbstractEventLoop):
+        self.sse_queue = sse_queue
+        self.event_loop = event_loop
+
+    def push(self, message: str) -> None:
+        from agent.utils.formatter import create_sse_message
+
+        sse_msg = create_sse_message("status", message)
+        asyncio.run_coroutine_threadsafe(
+            self.sse_queue.put(sse_msg), self.event_loop
+        )
+
+
+def set_status_notifier(notifier: StatusNotifier) -> None:
+    _status_notifier_var.set(notifier)
+
+
+def push_status(message: str) -> None:
+    """어디서든 호출 가능한 SSE status 이벤트 전송 헬퍼"""
+    notifier = _status_notifier_var.get(None)
+    if notifier:
+        notifier.push(message)
 
 
 class AdvancedStateCallback(BaseCallbackHandler):
