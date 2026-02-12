@@ -149,7 +149,7 @@ async def crew_collaboration_node(state: AgentState) -> AgentState:
             "crew_type": "legal_rag_crew",
             "status": "success",
             "query": state.user_query,
-            "agents_used": ["search_specialist", "legal_analyst", "legal_writer"]
+            "agents_used": ["search_specialist", "legal_expert"]
         }
         
         logger.info("법무지원 RAG 크루 실행 완료")

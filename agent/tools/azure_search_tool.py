@@ -2,7 +2,9 @@
 Azure AI Search 통합 도구
 CrewAI 에이전트가 법률 문서를 검색할 때 사용하는 도구
 """
-from typing import List, Dict, Any, Optional
+import hashlib
+import time
+from typing import List, Dict, Any, Optional, Tuple
 from crewai.tools import BaseTool
 from pydantic import Field
 from azure.search.documents import SearchClient
@@ -16,6 +18,32 @@ SELECT_FIELDS = [
     "id", "title", "content", "source", "category",
     "law_number", "case_number", "decision_date", "court",
 ]
+
+# 모듈 레벨 인메모리 캐시 (TTL: 1시간)
+_search_cache: Dict[str, Tuple[float, str]] = {}
+_CACHE_TTL_SECONDS = 3600  # 1시간
+
+
+def _get_cache_key(query: str, top_k: int) -> str:
+    """캐시 키 생성"""
+    raw = f"{query}:{top_k}"
+    return hashlib.md5(raw.encode()).hexdigest()
+
+
+def _get_from_cache(key: str) -> Optional[str]:
+    """캐시에서 결과 조회 (TTL 만료 시 None 반환)"""
+    if key in _search_cache:
+        cached_time, cached_result = _search_cache[key]
+        if time.time() - cached_time < _CACHE_TTL_SECONDS:
+            return cached_result
+        else:
+            del _search_cache[key]
+    return None
+
+
+def _set_cache(key: str, result: str) -> None:
+    """캐시에 결과 저장"""
+    _search_cache[key] = (time.time(), result)
 
 
 class AzureSearchTool(BaseTool):
@@ -46,7 +74,7 @@ class AzureSearchTool(BaseTool):
 
     def _run(self, query: str, top_k: int = 5) -> str:
         """
-        법률 문서 검색 실행
+        법률 문서 검색 실행 (인메모리 TTL 캐시 적용)
 
         Args:
             query: 검색 쿼리
@@ -58,6 +86,15 @@ class AzureSearchTool(BaseTool):
         from agent.utils.callbacks import push_status
 
         logger.info(f"Azure AI Search 실행 - 쿼리: {query}, top_k: {top_k}")
+
+        # 캐시 확인
+        cache_key = _get_cache_key(query, top_k)
+        cached_result = _get_from_cache(cache_key)
+        if cached_result is not None:
+            logger.info(f"캐시 히트 - 쿼리: {query}")
+            push_status("캐시된 검색 결과를 사용합니다.")
+            return cached_result
+
         push_status("관련 법률 문서를 검색하고 있습니다...")
 
         try:
@@ -79,6 +116,10 @@ class AzureSearchTool(BaseTool):
             formatted = self._format_results(docs)
             logger.info(f"검색 완료 - {len(docs)}개 문서 발견")
             push_status(f"{len(docs)}개의 관련 문서를 찾았습니다. 법률 분석 중...")
+
+            # 캐시 저장
+            _set_cache(cache_key, formatted)
+
             return formatted
 
         except Exception as e:

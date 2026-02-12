@@ -68,5 +68,5 @@ class AgentState(BaseModel):
     
     # [FSM] 재시도 로직을 위한 필드
     retry_count: int = 0  # 현재 재시도 횟수
-    max_retries: int = 3  # 최대 재시도 횟수
+    max_retries: int = 1  # 최대 재시도 횟수
     validation_status: str = "pending"  # pending, passed, failed
