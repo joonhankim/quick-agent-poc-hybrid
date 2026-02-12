@@ -78,6 +78,7 @@ export const Assistant = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string>("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // CosmosDB에서 대화 내역 가져오기
@@ -258,13 +259,17 @@ export const Assistant = () => {
     try {
       console.log("[Assistant] API 호출 시작");
 
-      const response = await fetch("/agent/chat", {
+      const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          messages: updatedMessages,
+          user_query: userMessage,
+          user_no: TEST_USER_NO,
+          room_id: TEST_ROOM_ID,
+          chat_id: chatId,
+          exe_date: new Date().toISOString(),
         }),
       });
 
@@ -282,6 +287,7 @@ export const Assistant = () => {
       // 빈 assistant 메시지 추가
       const finalMessages = [...updatedMessages, { role: "assistant" as const, content: "" }];
       setMessages(finalMessages);
+      setStatusMessage("");
 
       while (true) {
         const { done, value } = await reader.read();
@@ -301,44 +307,48 @@ export const Assistant = () => {
 
             try {
               const message = JSON.parse(jsonStr);
-              console.log("[Assistant] 메시지:", message.type);
+              console.log("[Assistant] SSE 이벤트:", message.type);
 
-              if (message.type === "complete") {
-                const text =
-                  typeof message.content === "string"
-                    ? message.content
-                    : message.content?.message || "";
-
-                assistantMessage = text;
-
-                // 마지막 메시지 업데이트
+              if (message.type === "text-delta") {
+                // Vercel AI SDK: 토큰 단위 텍스트 스트리밍
+                assistantMessage += message.delta || "";
                 setMessages((prev) => {
                   const newMessages = [...prev];
-                  newMessages[newMessages.length - 1].content = text;
+                  newMessages[newMessages.length - 1] = {
+                    ...newMessages[newMessages.length - 1],
+                    content: assistantMessage,
+                  };
                   return newMessages;
                 });
-
-                console.log("[Assistant] 텍스트 업데이트 완료");
-              } else if (message.type === "content") {
-                assistantMessage += message.content;
-
-                // 마지막 메시지 업데이트
-                setMessages((prev) => {
-                  const newMessages = [...prev];
-                  newMessages[newMessages.length - 1].content = assistantMessage;
-                  return newMessages;
-                });
-              } else if (message.type === "status") {
-                console.log("[Status]", message.content);
+              } else if (message.type === "message-metadata") {
+                // 진행 상태 업데이트
+                const status = message.messageMetadata?.status || "";
+                console.log("[Status]", status);
+                setStatusMessage(status);
+              } else if (message.type === "text-start") {
+                console.log("[Assistant] 텍스트 스트리밍 시작:", message.id);
+              } else if (message.type === "text-end") {
+                console.log("[Assistant] 텍스트 스트리밍 종료:", message.id);
+              } else if (message.type === "start") {
+                console.log("[Assistant] 메시지 시작");
+              } else if (message.type === "finish") {
+                console.log("[Assistant] 메시지 완료");
+                setStatusMessage("");
               } else if (message.type === "error") {
-                throw new Error(message.content);
+                throw new Error(message.errorText || "알 수 없는 오류");
               }
             } catch (e) {
+              if (e instanceof Error && e.message !== "알 수 없는 오류") {
+                // JSON 파싱 에러가 아닌 throw된 에러는 re-throw
+                if (!(e instanceof SyntaxError)) throw e;
+              }
               console.error("Failed to parse SSE:", jsonStr, e);
             }
           }
         }
       }
+
+      setStatusMessage("");
 
       // 채팅 저장
       const finalMessagesWithResponse = [...updatedMessages, { role: "assistant" as const, content: assistantMessage }];
@@ -362,6 +372,7 @@ export const Assistant = () => {
       setMessages(errorMessages);
     } finally {
       setIsLoading(false);
+      setStatusMessage("");
     }
   };
 
@@ -547,6 +558,13 @@ export const Assistant = () => {
                               </div>
                             )}
                           </div>
+                          {/* 진행 상태 표시 (마지막 assistant 메시지 + 로딩 중일 때) */}
+                          {message.role === "assistant" && isLoading && index === messages.length - 1 && statusMessage && (
+                            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground border-t border-border/30 pt-2">
+                              <span className="inline-block w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></span>
+                              <span>{statusMessage}</span>
+                            </div>
+                          )}
                         </div>
 
                         {/* AI 메시지 액션 버튼 */}
@@ -608,7 +626,7 @@ export const Assistant = () => {
                 {isLoading && (
                   <p className="text-xs text-muted-foreground text-center mt-3 flex items-center justify-center gap-2">
                     <span className="inline-block w-1 h-1 bg-primary rounded-full animate-pulse"></span>
-                    AI가 응답을 생성하는 중...
+                    {statusMessage || "AI가 응답을 생성하는 중..."}
                   </p>
                 )}
               </form>
