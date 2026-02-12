@@ -28,6 +28,16 @@ async def chat(request: QueryRequest, background_tasks: BackgroundTasks):
     Vercel AI SDK UI Message Stream 프로토콜 호환
     """
 
+    # CosmosDB에서 최근 대화 히스토리 로드 (꼬리 질문 컨텍스트 유지)
+    history_manager = ChatHistoryManager()
+    recent_history = await asyncio.to_thread(
+        history_manager.get_recent_conversation,
+        user_no=request.user_no,
+        room_id=request.room_id,
+        max_turns=10,
+    )
+    logger.info(f"대화 히스토리 로드: {len(recent_history)}개 메시지")
+
     initial_state = AgentState(
         id=request.chat_id,
         chat_id=request.chat_id,
@@ -35,6 +45,7 @@ async def chat(request: QueryRequest, background_tasks: BackgroundTasks):
         room_id=request.room_id,
         user_query=request.user_query,
         exe_date=datetime.now().isoformat(),
+        history=recent_history,
         final_response="",
         step_messages=[],
         route=None,
