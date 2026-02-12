@@ -138,15 +138,17 @@ async def chat(request: QueryRequest, background_tasks: BackgroundTasks):
                     if step_messages:
                         await sse_queue.put(sse_status(step_messages[-1]))
 
-                    # 최종 응답 → text-start / text-delta / text-end
+                    # 최종 응답 처리
+                    # - 콜백으로 토큰이 이미 스트리밍된 경우(text_started=True): DB 저장만
+                    # - 콜백 없이 final_response만 있는 경우(text_started=False): SSE로 전송
                     if final_response:
+                        response_data["content"] = final_response
                         if not text_started["value"]:
                             await sse_queue.put(sse_text_start(text_part_id))
                             text_started["value"] = True
-                        await sse_queue.put(
-                            sse_text_delta(text_part_id, final_response)
-                        )
-                        response_data["content"] = final_response
+                            await sse_queue.put(
+                                sse_text_delta(text_part_id, final_response)
+                            )
 
                 # ── 텍스트 종료 + 메시지 완료 ──
                 if text_started["value"]:
