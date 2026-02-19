@@ -3,6 +3,7 @@
 Azure AI Search를 활용한 법률 문서 검색 및 분석
 """
 import hashlib
+import re
 import time
 from crewai import Agent, Task, Crew, Process, LLM
 from typing import Optional, Dict, Tuple
@@ -15,10 +16,9 @@ logger = APILogger()
 
 from agent.llm_endpoint import get_safe_llm
 
-# Initialize LLM for CrewAI (config에서 모델명 로드)
+# Initialize LLM for CrewAI (gpt-4o: 빠른 응답 + 비-reasoning)
 config = get_config()
-_model_name = config.get("AGENT_AZURE_OPENAI_MODEL_NAME", "gpt-5.1")
-llm = get_safe_llm(_model_name)._llm
+llm = get_safe_llm("gpt-4o")._llm
 
 
 def create_legal_rag_crew(user_query: str) -> Crew:
@@ -34,106 +34,45 @@ def create_legal_rag_crew(user_query: str) -> Crew:
     # Azure AI Search 도구 준비
     search_tool = get_azure_search_tool()
 
-    # 1. 검색 전문가 에이전트
-    search_specialist = Agent(
-        role='법률 문서 검색 전문가',
-        goal=f'{user_query}와 관련된 법률 문서, 판례, 법령을 정확하게 검색',
-        backstory="""당신은 대형 로펌에서 15년간 법률 리서치를 담당한 전문가입니다.
-        법률 용어, 조항 번호, 판례 번호를 정확히 이해하고,
-        Azure AI Search를 활용하여 가장 관련성 높은 법률 문서를 찾아내는 데 탁월합니다.
-        검색 결과의 품질을 평가하고 필요시 검색 쿼리를 개선할 수 있습니다.""",
+    # 단일 법률 어시스턴트 에이전트 (검색 + 분석 + 답변 통합)
+    legal_assistant = Agent(
+        role='법률 정보 어시스턴트',
+        goal=f'"{user_query}"에 대해 법률 문서를 검색하고 500자 이내로 간결하게 답변',
+        backstory="""법률 검색과 분석을 수행하는 AI 어시스턴트입니다.
+        검색 도구로 관련 법령·판례를 찾고, 핵심만 간결하게 설명합니다.""",
         llm=llm,
         tools=[search_tool],
+        max_iter=3,
         verbose=True,
         allow_delegation=False
     )
 
-    # 2. 법률 전문가 에이전트 (분석 + 작성 통합)
-    legal_expert = Agent(
-        role='법률 분석 및 답변 작성 전문가',
-        goal='검색된 법률 문서를 분석하여 핵심 조항과 법적 해석을 제공하고, 일반인도 이해할 수 있는 명확한 한국어 답변을 작성',
-        backstory="""당신은 사법연수원을 수석 졸업한 변호사로 20년간 다양한 법률 사건을 다뤘습니다.
-        민법, 상법, 노동법, 행정법 등 전 분야에 걸친 깊은 이해를 가지고 있으며,
-        복잡한 법률 문서에서 핵심 내용을 추출하고 명확한 법적 해석을 제공합니다.
-        여러 법률 조항 간의 관계와 우선순위를 정확히 판단할 수 있습니다.
-        또한 법률 전문 저널리스트 경험을 바탕으로 복잡한 법률 개념을
-        일반인도 쉽게 이해할 수 있도록 설명하는 데 전문성을 가지고 있습니다.
-        법적 정확성을 유지하면서도 친절하고 명확한 답변을 작성하며,
-        반드시 참조 법령과 출처를 명시하고 법적 면책 조항을 포함합니다.""",
-        llm=llm,
-        verbose=True,
-        allow_delegation=False
+    # 단일 태스크: 검색 → 분석 → 답변 작성을 하나로 통합
+    legal_task = Task(
+        description=f"""다음 법률 질문에 답변하세요:
+
+질문: {user_query}
+
+수행 사항:
+1. 검색 도구로 관련 법령·판례 검색
+2. 검색 결과를 바탕으로 질문에 답변
+
+답변 규칙:
+- 700자 이내로 핵심만 간결하게 작성
+- 답변 본문에서 관련 조항을 인용할 때 반드시 법령명과 조·항·호까지 명시 (예: 근로기준법 제23조 제1항)
+- 답변 끝에 "📎 참고 법령" 섹션을 두고, 인용한 법령·판례를 목록으로 정리
+- 마지막에 면책 조항 포함: "※ 본 답변은 일반적인 법률 정보 제공 목적이며, 구체적인 법률 문제는 변호사와 상담하시기 바랍니다."
+""",
+        agent=legal_assistant,
+        expected_output='700자 이내의 간결한 법률 답변 (본문 내 조·항·호 인용, 참고 법령 목록, 면책 조항 포함)'
     )
 
-    # 태스크 정의
-    search_task = Task(
-        description=f"""다음 법률 질문에 대해 관련 법률 문서를 검색하세요:
-
-        질문: {user_query}
-
-        수행 사항:
-        1. 질문에서 핵심 법률 키워드 추출
-        2. Azure AI Search를 사용하여 관련 법령, 판례, 실무 가이드 검색
-        3. 검색 결과의 관련성 평가
-        4. 가장 관련성 높은 문서 3-5개 선별
-
-        출력: 선별된 문서의 제목, 출처, 핵심 내용 요약
-        """,
-        agent=search_specialist,
-        expected_output='관련성 높은 법률 문서 목록 (제목, 출처, 요약 포함)'
-    )
-
-    combined_task = Task(
-        description=f"""검색된 법률 문서를 분석하고, 사용자 친화적인 최종 답변을 작성하세요:
-
-        질문: {user_query}
-
-        [분석 단계]
-        1. 검색된 각 문서의 핵심 조항 추출
-        2. 질문과의 관련성 분석
-        3. 적용 가능한 법률 원칙 설명
-        4. 여러 문서 간 모순이 있다면 우선순위 판단
-        5. 실무적 적용 방안 제시
-
-        [답변 작성 단계]
-        위 분석 결과를 바탕으로 다음 기준에 따라 최종 답변을 작성하세요:
-        1. 명확하고 이해하기 쉬운 한국어 사용
-        2. 사용자가 답변의 길이(예: 한 문장, 요약)나 형식을 지정한 경우 반드시 이를 최우선으로 준수
-        3. 상세 설명은 사용자가 짧은 답변을 요청하지 않았을 때만 후속으로 배치
-        4. 참조한 법령 조항과 판례를 명확히 표시
-        5. 출처 정보 포함 (법령명, 조항 번호, 판례 번호 등)
-        6. 다음 법적 면책 조항 필수 포함:
-           "본 답변은 일반적인 법률 정보 제공을 목적으로 하며,
-            개별 사안에 대한 법률 자문이 아닙니다.
-            구체적인 법률 문제는 변호사와 상담하시기 바랍니다."
-
-        출력: 최종 사용자 답변 (한국어, 정중한 톤, 출처 및 면책 조항 포함)
-        """,
-        agent=legal_expert,
-        expected_output='사용자 친화적인 최종 법률 답변 (분석 내용, 출처 및 면책 조항 포함)'
-    )
-
-    # 태스크 완료 시 SSE status 이벤트 전송
-    from agent.utils.callbacks import push_status
-
-    _task_status_messages = [
-        "법률 문서 검색 완료. 법률 분석 및 답변 작성을 시작합니다...",
-    ]
-    _task_step = {"count": 0}
-
-    def _on_task_complete(task_output):
-        idx = _task_step["count"]
-        if idx < len(_task_status_messages):
-            push_status(_task_status_messages[idx])
-        _task_step["count"] += 1
-
-    # 크루 생성 - 순차적 프로세스 (검색 → 분석+작성)
+    # 크루 생성 - 단일 에이전트, 단일 태스크
     crew = Crew(
-        agents=[search_specialist, legal_expert],
-        tasks=[search_task, combined_task],
+        agents=[legal_assistant],
+        tasks=[legal_task],
         process=Process.sequential,
         verbose=True,
-        task_callback=_on_task_complete,
     )
 
     logger.info(f"법무지원 RAG 크루 생성 완료 - 질문: {user_query}")
@@ -143,6 +82,27 @@ def create_legal_rag_crew(user_query: str) -> Crew:
 # Crew 결과 캐시 (user_query 기준, TTL: 1시간)
 _crew_result_cache: Dict[str, Tuple[float, str]] = {}
 _CREW_CACHE_TTL_SECONDS = 3600
+
+
+_THOUGHT_PATTERN = re.compile(
+    r"^(Thought:\s*|Action:\s*|Action Input:\s*|Observation:\s*)",
+    re.MULTILINE,
+)
+
+_FALLBACK_RESPONSE = (
+    "검색 결과에서 정확한 정보를 찾지 못했습니다. "
+    "질문을 좀 더 구체적으로 작성해 주시면 더 나은 답변을 드릴 수 있습니다.\n\n"
+    "※ 본 답변은 일반적인 법률 정보 제공 목적이며, "
+    "구체적인 법률 문제는 변호사와 상담하시기 바랍니다."
+)
+
+
+def _sanitize_crew_output(raw: str) -> str:
+    """CrewAI 내부 Thought/Action 텍스트가 노출된 경우 정리"""
+    if _THOUGHT_PATTERN.search(raw):
+        logger.warning(f"CrewAI 내부 reasoning 노출 감지, 폴백 응답 반환")
+        return _FALLBACK_RESPONSE
+    return raw
 
 
 def run_legal_rag_crew(user_query: str) -> str:
@@ -169,7 +129,7 @@ def run_legal_rag_crew(user_query: str) -> str:
     try:
         crew = create_legal_rag_crew(user_query)
         result = crew.kickoff()
-        result_str = str(result)
+        result_str = _sanitize_crew_output(str(result))
         logger.info("법무지원 RAG 크루 실행 완료")
 
         # 캐시 저장

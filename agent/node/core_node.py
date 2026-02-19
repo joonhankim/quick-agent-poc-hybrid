@@ -124,45 +124,38 @@ async def generate_response_node(state: AgentState) -> AgentState:
 
 async def crew_collaboration_node(state: AgentState) -> AgentState:
     """
-    법무지원 RAG 전문 에이전트 팀을 실행하는 노드
-    LangGraph의 오케스트레이션 하에 CrewAI 법률 전문가 팀이 자율적으로 협업
-    (Async Non-blocking 방식으로 실행)
+    법무지원 RAG 에이전트를 실행하는 노드
+    CrewAI 단일 Agent(gpt-4o) + Azure Search 도구로 법률 질문 처리
     """
     from agent.crews.legal_rag_crew import run_legal_rag_crew
     from agent.utils.callbacks import push_status
 
     logger.info(f"법무지원 RAG 크루 실행 시작 - 쿼리: {state.user_query}")
-    push_status("법률 전문가 팀 분석을 시작합니다...")
+    push_status("법률 문서 검색 및 분석을 시작합니다...")
 
     try:
-        # [Async Refactoring]
-        # CrewAI의 run_legal_rag_crew는 동기 함수이므로,
-        # 메인 이벤트 루프를 차단하지 않기 위해 별도 스레드에서 실행합니다.
         crew_result = await asyncio.to_thread(run_legal_rag_crew, state.user_query)
-        
-        # 결과 처리 로직은 동일
+
         state.final_response = crew_result
         state.crew_metadata = {
             "crew_type": "legal_rag_crew",
             "status": "success",
             "query": state.user_query,
-            "agents_used": ["search_specialist", "legal_expert"]
+            "agents_used": ["legal_assistant"]
         }
-        
+
         logger.info("법무지원 RAG 크루 실행 완료")
-        
+
     except Exception as e:
         logger.error(f"법무지원 RAG 크루 실행 실패: {str(e)}")
         state.error_logs.append(f"Legal RAG Crew execution error: {str(e)}")
-        # ... 에러 처리 로직 유지 ...
         state.crew_metadata = {
             "crew_type": "legal_rag_crew",
             "status": "failed",
             "error": str(e)
         }
-        # 폴백: 기존 LLM 응답 사용
-        state.final_response = f"법무지원 RAG 크루 실행 중 오류가 발생했습니다. 기본 응답으로 전환합니다."
-    
+        state.final_response = "법률 질문 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+
     return state
 
 
