@@ -23,6 +23,9 @@ class AgentState(BaseModel):
     # 대화 이력
     history: Annotated[Sequence[HumanMessage | AIMessage], add_messages] = []
 
+    # CosmosDB 히스토리 전용 (add_messages 리듀서 없음 → MemorySaver에 의해 누적되지 않음)
+    chat_context: List[HumanMessage | AIMessage] = Field(default_factory=list)
+
     # 모델 설정
     model_name: str = "gpt-5"
     embedder_name: Optional[str] = "text-embedding-3-large"

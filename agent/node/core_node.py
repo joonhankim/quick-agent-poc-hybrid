@@ -64,20 +64,17 @@ async def general_chat_node(state: AgentState) -> AgentState:
     - RAG나 도구 없이 LLM의 기본 지식으로 답변
     """
     query = state.user_query
-    history = state.history
-    
+
     system_prompt = """
     너는 친절하고 도움을 주는 AI 어시스턴트야.
     사용자의 일상적인 질문이나 인사에 대해 자연스럽고 정중하게 한국어로 답변해줘.
     법률적인 조언이 필요한 질문이라고 판단되면, "저는 법률 전문가가 아니지만 일반적인 내용은 알려드릴 수 있습니다."라고 운을 떼고 답변해.
     하지만 되도록이면 가벼운 대화에 집중해.
     """
-    
-    messages = [
-        SystemMessage(content=system_prompt),
-        SystemMessage(content=f"최근 대화 이력: {history}"),
-        HumanMessage(content=query),
-    ]
+
+    # chat_context에서 최근 6개 메시지(3턴)만 추출하여 LangChain 메시지 객체로 직접 전달
+    recent = list(state.chat_context)[-6:] if state.chat_context else []
+    messages = [SystemMessage(content=system_prompt)] + recent + [HumanMessage(content=query)]
     
     try:
         logger.info(f"General Chat 생성 시작 - 쿼리: {query}")
