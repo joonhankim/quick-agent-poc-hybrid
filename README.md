@@ -120,108 +120,101 @@ START → start_node → supervisor_node ─┬─ "general"  → general_chat_n
 - **SSE 스트리밍**: Vercel AI SDK 프로토콜 호환 (`text/event-stream`)
 - **대화 히스토리**: CosmosDB에서 최근 10턴을 로드하여 멀티턴 대화 지원
 
-## 📚 법률 데이터 현황
+## 🧩 에이전트 아키텍처 상세
 
-Azure AI Search 인덱스(`law-unified-index`)에 적재된 데이터는 **[법제처 Open API](https://open.law.go.kr)**를 통해 수집한 대한민국 공공 법률 데이터입니다.
+### Supervisor 패턴 (의도 분류)
 
-| 구분 | 건수 | 출처 | 수집 API | RAG 활용 |
-| :--- | ---: | :--- | :--- | :---: |
-| **법령** | 1,001건 | 법제처 | 법령 API (`법령검색/목록` + 조문 전문) | **O** |
-| **판례** | 5,000건 | 법제처 | 판례 API (`판례검색/목록`) | X |
-| **합계** | **6,001건** | | | |
+사용자 질문이 들어오면 `supervisor_node`가 2단계로 의도를 분류합니다.
 
-> **RAG에는 법령 조문 전문(1,001건)만 활용됩니다.** 판례 5,000건은 인덱스에 존재하지만 content에 사건명만 포함되어 있어 RAG 검색 대상에서 실질적으로 제외됩니다.
-
-### 법령 데이터 (1,001건)
-
-법제처 Open API의 법령 API에서 **조문 전문**을 수집하여 `content` 필드에 적재한 데이터입니다. 대한민국 현행 법률, 시행령, 시행규칙 등 다양한 법규의 실제 조문 텍스트를 포함하고 있어 RAG 시스템의 핵심 검색 소스로 활용됩니다.
-
-**content 길이 분포:**
-
-전체 1,001건 중 **94.4%가 500자 초과의 실질적 법령 본문**을 보유하고 있습니다 (평균 6,388자).
-
-| content 길이 | 건수 | 비율 |
-| :--- | ---: | ---: |
-| ~50자 (제목만) | 2건 | 0.2% |
-| 51~500자 | 54건 | 5.4% |
-| 501~2,000자 | 248건 | 24.8% |
-| 2,001~10,000자 | 515건 | 51.4% |
-| 10,001~30,000자 | 155건 | 15.5% |
-| 30,001~50,000자 | 27건 | 2.7% |
-
-> 50,000자에서 truncation이 적용되어 있습니다. 건축법 시행령, 공직선거법 등 일부 대형 법령은 조문 전문이 잘릴 수 있습니다.
-
-**하위 유형별 분포:**
-
-| 유형 | 본문 보유 | 제목만 | 합계 |
-| :--- | ---: | ---: | ---: |
-| 법률 | 282건 | 9건 | 291건 |
-| 시행령 | 244건 | 3건 | 247건 |
-| 시행규칙 | 163건 | 5건 | 168건 |
-| 규칙 | 134건 | 19건 | 153건 |
-| 규정 | 74건 | 10건 | 84건 |
-| 직제 | 22건 | 0건 | 22건 |
-| 기타 | 26건 | 10건 | 36건 |
-
-### 예시 데이터
-
-**법령 예시 (조문 전문 포함):**
-
-```json
-{
-  "id": "law_234693",
-  "title": "건설근로자의 고용개선 등에 관한 법률",
-  "content": "건설근로자의 고용개선 등에 관한 법률\n\n제1조(목적) 이 법은 건설근로자의 고용안정 ...(이하 조문 전문)",
-  "source": "법제처_법령",
-  "category": "법률",
-  "case_number": "",
-  "decision_date": "",
-  "court": "",
-  "law_number": ""
-}
+```
+사용자 질문 → [키워드 Fast Path] ──법률 키워드 발견──→ "legal"
+                    │
+                    └──키워드 미발견──→ [LLM Slow Path (gpt-4o)] → "legal" / "research" / "general"
 ```
 
-### 판례 데이터 제한 사항 (5,000건)
+- **Fast Path**: `["법", "조항", "판례", "소송", "형법", "민법", ...]` 등 법률 키워드가 포함되면 LLM 호출 없이 즉시 `legal` 라우팅
+- **Slow Path**: 키워드가 없는 경우 gpt-4o가 3개 카테고리 중 하나로 분류
 
-판례 5,000건은 인덱스에 존재하지만, `content` 필드에 **사건명만 포함**되어 있어 RAG에 부적합합니다.
+### LLM 이중 모델 전략
 
-```json
-{
-  "id": "prec_241657",
-  "title": "손해배상(기)",
-  "content": "[손해배상(기)]",
-  "source": "법제처_판례",
-  "category": "판례",
-  "case_number": "2023다249456",
-  "decision_date": "2024.05.30",
-  "court": "대법원"
-}
+용도에 따라 두 개의 LLM 인스턴스를 사용합니다.
+
+| 인스턴스 | 모델 | 용도 | 특성 |
+| :--- | :--- | :--- | :--- |
+| `fast_llm` | gpt-4o | Supervisor, Legal Agent, General Chat | 빠른 응답, 도구 호출 지원 |
+| `langchain_llm` | gpt-5.1 | Research Agent (researcher + editor) | reasoning 모델, 심층 분석 |
+
+- reasoning 모델(gpt-5.x, o1, o3)은 `temperature` 파라미터를 자동으로 생략합니다.
+- 모든 LLM은 `streaming=True`로 초기화되어 SSE 토큰 스트리밍을 지원합니다.
+
+### Legal Agent 내부 동작
+
+`create_react_agent`가 ReAct 루프를 통해 자율적으로 도구를 호출합니다.
+
+```
+사용자 질문 → [ReAct Agent (gpt-4o)]
+                    │
+                    ├─ Thought: 어떤 법령을 검색해야 하는지 판단
+                    ├─ Action: azure_legal_search("근로기준법 부당해고")
+                    ├─ Observation: 검색 결과 5건 수신
+                    ├─ Thought: 검색 결과를 바탕으로 답변 구성
+                    └─ Final Answer: 조·항·호 인용 + 참고 법령 + 면책 조항
 ```
 
-**보강 불가 사유:** 법제처 Open API의 판례 상세 조회 API가 판결 전문(판시사항, 판결요지)을 JSON 필드로 제공하지 않습니다. HTML 본문으로만 제공되어 구조화된 수집이 불가능합니다.
+- **도구**: `azure_legal_search` — Azure AI Search 시맨틱 하이브리드 검색 (키워드 + 리랭킹)
+- **캐싱**: 검색 결과(쿼리 단위)와 에이전트 최종 응답(질문 단위) 각각 1시간 TTL 캐시
+- **출력 정제**: ReAct 내부 텍스트(Thought/Action/Observation)가 최종 응답에 노출되면 폴백 응답으로 대체
 
-> 향후 법제처 API가 판결 전문을 JSON으로 제공하거나, HTML 파싱을 통한 수집이 가능해지면 판례 데이터를 보강할 수 있습니다.
+### Research Agent 내부 동작
 
-### 인덱스 스키마
+도구 없이 2단계 LLM 체인으로 구성됩니다.
 
-| 필드 | 타입 | 설명 | 법령 | 판례 |
-| :--- | :--- | :--- | :---: | :---: |
-| `id` | string | 문서 고유 ID | `law_*` | `prec_*` |
-| `title` | string | 법령명 또는 사건명 | O | O |
-| `content` | string | 조문 전문 또는 사건명 | **조문 전문** | 사건명만 |
-| `source` | string | 출처 구분 | 법제처_법령 | 법제처_판례 |
-| `category` | string | 문서 유형 | 법률/시행령 등 | 판례 |
-| `law_number` | string | 법률/조항 번호 | - | - |
-| `case_number` | string | 사건번호 | - | O |
-| `decision_date` | string | 판결일 | - | O |
-| `court` | string | 법원명 | - | O |
+```
+사용자 질문 → [Stage 1: Researcher (gpt-5.1)] → 심층 리서치 보고서
+                                                        │
+                                                        ↓
+                  [Stage 2: Editor (gpt-5.1)] → 사용자 친화적 최종 응답
+```
 
-### 검색 방식
+- reasoning 모델(gpt-5.1)을 사용하여 복잡한 주제에 대한 고품질 분석을 수행합니다.
+- Researcher가 체계적인 보고서를 작성하고, Editor가 가독성과 톤을 다듬습니다.
 
-- **시맨틱 하이브리드 검색**: 키워드 매칭 + 시맨틱 리랭킹(`legal-semantic-config`)
-- **검색 대상**: 법령 조문 전문(1,001건) 중심으로 검색 — 판례는 사건명만 있어 매칭 가능성 낮음
-- **인메모리 캐시**: 동일 쿼리 1시간 TTL 캐시로 반복 호출 시 API 비용 절감
-- **기본 반환 수**: 쿼리당 상위 5건 (관련성 점수 기준 정렬)
+### Validation & Self-Healing
+
+`validation_node`는 에이전트 응답의 품질을 검증하고, 실패 시 동적으로 재시도합니다.
+
+```
+에이전트 응답 → [validation_node]
+                    │
+                    ├─ 실패 키워드 미발견 → "passed" → END
+                    │
+                    └─ 실패 키워드 발견 ("죄송합니다", "오류가 발생" 등)
+                         │
+                         ├─ retry_count < max_retries → "retry" → active_agent로 복귀
+                         └─ retry_count >= max_retries → "failed" → END
+```
+
+- **동적 라우팅**: `state.active_agent` 값(`"legal"` 또는 `"research"`)에 따라 해당 에이전트 노드로 정확히 돌아갑니다.
+- **재시도 제한**: 최대 1회로 제한하여 무한 루프를 방지합니다.
+
+### SSE 스트리밍 파이프라인
+
+```
+LLM (streaming=True)
+    │ on_llm_new_token 콜백
+    ↓
+token_queue (asyncio.Queue)
+    │ drain_tokens 태스크
+    ↓
+sse_queue (asyncio.Queue) ← push_status (contextvars 기반)
+    │
+    ↓
+SSE Response (text/event-stream, Vercel AI SDK 호환)
+```
+
+- `AdvancedStateCallback`이 LLM 토큰을 실시간으로 `token_queue`에 전달합니다.
+- `StatusNotifier`는 `contextvars` 기반으로 어떤 노드에서든 `push_status()`를 호출하여 상태 이벤트를 전송할 수 있습니다.
+- `create_react_agent` 내부 LLM 호출에서도 콜백이 자동 전파되어 토큰 스트리밍이 동작합니다.
 
 ## 🛠 기술 스택
 
