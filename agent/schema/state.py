@@ -37,12 +37,13 @@ class AgentState(BaseModel):
     # 메타데이터
     planning_metadata: Dict[str, Any] = {}
     execution_metadata: Dict[str, Any] = {}
-    crew_metadata: Dict[str, Any] = {}  # CrewAI 실행 결과 및 메타데이터
+    agent_metadata: Dict[str, Any] = {}  # 에이전트 실행 결과 및 메타데이터
     error_logs: List[str] = []
 
     # 라우팅 정보
     next_step: Optional[str] = None
-    route: Optional[str] = "legal"  # "general" or "legal" (default)
+    route: Optional[str] = "legal"  # "general", "legal", or "research" (default: legal)
+    active_agent: Optional[str] = None  # 재시도 시 어떤 에이전트로 돌아갈지 결정
 
     # 임베딩 캐시 (기존 코드 재사용)
     embedding_refs: Dict[str, str] = {}

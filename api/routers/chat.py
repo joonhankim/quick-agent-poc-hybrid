@@ -52,7 +52,7 @@ async def chat(request: QueryRequest, background_tasks: BackgroundTasks):
         route=None,
         retry_count=0,
         validation_status="pending",
-        crew_metadata={},
+        agent_metadata={},
         execution_metadata={},
         error_logs=[]
     )
@@ -122,7 +122,7 @@ async def chat(request: QueryRequest, background_tasks: BackgroundTasks):
 
         async def run_graph():
             try:
-                # StatusNotifier 설정 (crew 스레드에서도 SSE status push 가능)
+                # StatusNotifier 설정 (에이전트 노드에서도 SSE status push 가능)
                 notifier = StatusNotifier(sse_queue=sse_queue, event_loop=event_loop)
                 set_status_notifier(notifier)
 
