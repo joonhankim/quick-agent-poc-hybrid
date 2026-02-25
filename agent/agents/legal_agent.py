@@ -5,7 +5,7 @@ legal_rag_crew.py 대체
 import hashlib
 import re
 import time
-from typing import Dict, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from langgraph.prebuilt import create_react_agent
 
@@ -48,19 +48,24 @@ def _sanitize_output(raw: str) -> str:
     return raw
 
 
-async def run_legal_agent(user_query: str) -> str:
+async def run_legal_agent(user_query: str, chat_context: Optional[List] = None) -> str:
     """
     법률 RAG 에이전트 실행
     동일한 user_query에 대해 1시간 TTL 인메모리 캐시 적용
 
     Args:
         user_query: 사용자의 법률 질문
+        chat_context: 이전 대화 컨텍스트 메시지 리스트 (꼬리질문 지원)
 
     Returns:
         str: 법률 답변
     """
-    # 캐시 확인
-    cache_key = hashlib.md5(user_query.strip().encode()).hexdigest()
+    # 캐시 확인 (컨텍스트 포함하여 키 생성)
+    context_str = ""
+    if chat_context:
+        context_str = "|".join(m.content for m in chat_context if hasattr(m, "content"))
+    cache_raw = f"{user_query.strip()}:{context_str}"
+    cache_key = hashlib.md5(cache_raw.encode()).hexdigest()
     if cache_key in _result_cache:
         cached_time, cached_result = _result_cache[cache_key]
         if time.time() - cached_time < _CACHE_TTL_SECONDS:
@@ -72,8 +77,16 @@ async def run_legal_agent(user_query: str) -> str:
     try:
         logger.info(f"Legal Agent 실행 시작 - 쿼리: {user_query}")
 
+        # 대화 컨텍스트가 있으면 messages 앞에 추가
+        messages = []
+        if chat_context:
+            for msg in chat_context:
+                messages.append({"role": msg.type, "content": msg.content})
+            logger.info(f"대화 컨텍스트 {len(chat_context)}개 메시지 포함")
+        messages.append({"role": "user", "content": user_query})
+
         result = await _legal_agent.ainvoke(
-            {"messages": [{"role": "user", "content": user_query}]}
+            {"messages": messages}
         )
 
         # 마지막 AI 메시지에서 응답 추출

@@ -90,7 +90,10 @@ def _format_results(results: List[Dict[str, Any]]) -> str:
 
         content = doc.get("content", "")
         if content:
-            formatted += f"내용: {content[:500]}...\n" if len(content) > 500 else f"내용: {content}\n"
+            if len(content) > 2000:
+                formatted += f"내용: {content[:2000]}\n[... 이하 생략 (전체 {len(content)}자)]\n"
+            else:
+                formatted += f"내용: {content}\n"
 
         metadata_fields = {
             "분류": doc.get("category"),
@@ -147,6 +150,16 @@ def azure_legal_search(query: str, top_k: int = 5) -> str:
             doc = {field: result.get(field) for field in SELECT_FIELDS}
             doc["relevance_score"] = result.get("@search.reranker_score", result.get("@search.score", 0))
             docs.append(doc)
+
+        # 관련성 필터링: semantic reranker 점수 1.0 미만 제거 (최소 1건 유지)
+        if docs:
+            filtered = [d for d in docs if d.get("relevance_score", 0) >= 1.0]
+            if not filtered:
+                filtered = [max(docs, key=lambda d: d.get("relevance_score", 0))]
+            removed_count = len(docs) - len(filtered)
+            if removed_count > 0:
+                logger.info(f"관련성 필터링: {len(docs)}개 중 {removed_count}개 제거 (score < 1.0), {len(filtered)}개 유지")
+            docs = filtered
 
         formatted = _format_results(docs)
         logger.info(f"검색 완료 - {len(docs)}개 문서 발견")

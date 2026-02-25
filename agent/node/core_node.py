@@ -1,3 +1,5 @@
+import re
+
 from langchain_core.messages import HumanMessage, SystemMessage
 from agent.schema.state import AgentState
 from agent.main import langchain_llm, fast_llm
@@ -97,8 +99,11 @@ async def legal_agent_node(state: AgentState) -> AgentState:
 
     state.active_agent = "legal"
 
+    # 최근 4개 메시지(2턴) 추출하여 대화 컨텍스트 전달
+    recent_context = list(state.chat_context)[-4:] if state.chat_context else None
+
     try:
-        result = await run_legal_agent(state.user_query)
+        result = await run_legal_agent(state.user_query, chat_context=recent_context)
 
         state.final_response = result
         state.agent_metadata = {
@@ -176,6 +181,18 @@ async def validation_node(state: AgentState) -> AgentState:
             is_valid = False
             logger.warning(f"답변 품질 검증 실패: '{keyword}' 키워드 발견")
             break
+
+    # Legal 에이전트 추가 검증
+    if is_valid and state.active_agent == "legal":
+        if len(response) < 200:
+            is_valid = False
+            logger.warning(f"법률 답변 검증 실패: 최소 길이 미달 ({len(response)}자 < 200자)")
+        elif "※" not in response and "면책" not in response and "법률 정보 제공 목적" not in response:
+            is_valid = False
+            logger.warning("법률 답변 검증 실패: 면책 조항 누락")
+        elif not re.search(r"제\d+조", response):
+            is_valid = False
+            logger.warning("법률 답변 검증 실패: 법조항 인용 패턴(제N조) 없음")
 
     if is_valid:
         state.validation_status = "passed"

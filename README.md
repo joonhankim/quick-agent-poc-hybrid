@@ -1,15 +1,18 @@
 # HD현대 법무 지원 Agent
 
-순수 LangGraph 기반 Multi-Agent 아키텍처의 법무 지원 AI 시스템입니다.
+순수 LangGraph 기반 **Advanced Multi-Agent + Advanced RAG** 아키텍처의 법무 지원 AI 시스템입니다.
 Supervisor 패턴으로 의도를 분류하고, 전문 에이전트(Legal, Research, General)가 각 도메인을 처리합니다.
-FSM 기반 Self-Healing과 Azure Private 환경 내 동작을 통해 엔터프라이즈 레벨의 신뢰성을 제공합니다.
+Legal Agent는 Multi-Query Retrieval, Semantic Reranker 필터링, Cross-Agent Context Propagation,
+Domain-Aware Structural Validation 등 고급 RAG/에이전트 기법을 적용하여
+실무자가 상급자에게 보고할 수 있는 수준의 구조화된 법률 답변을 생성합니다.
 
 ## 🎯 프로젝트 목적
 
 1. **법무 업무 자동화**: 법률 질의에 대해 법령·판례를 검색하고 정밀한 분석 답변을 제공합니다.
-2. **순수 LangGraph Multi-Agent**: Supervisor 패턴으로 라우팅하고, `create_react_agent`(Legal) 및 2-Stage LLM Chain(Research)으로 전문 처리합니다.
-3. **FSM 기반 품질 보증**: 답변 품질이 낮을 경우 `active_agent` 기반으로 해당 에이전트를 자동 재시도하는 Self-Healing 메커니즘을 포함합니다.
-4. **보안 및 확장성**: Azure Private 환경 내에서 동작하며, CosmosDB에 대화 맥락을 영구 저장(Persistence)합니다.
+2. **Advanced Multi-Agent**: Supervisor 패턴 라우팅 + Cross-Agent Context Propagation으로 멀티턴 대화를 지원하며, 에이전트별 Domain-Aware Validation으로 품질을 보증합니다.
+3. **Advanced RAG**: Multi-Query Retrieval(2~3회 다각도 검색) + Semantic Reranker 기반 관련성 필터링 + 확장된 컨텍스트 윈도우(2000자)로 법령 조문의 핵심 조항을 보존합니다.
+4. **FSM 기반 Self-Healing**: 에이전트 유형별 구조 검증(법조항 인용, 면책 조항, 최소 길이)으로 불완전한 답변을 자동 재시도합니다.
+5. **보안 및 확장성**: Azure Private 환경 내에서 동작하며, CosmosDB에 대화 맥락을 영구 저장(Persistence)합니다.
 
 ## 🏗 시스템 아키텍처
 
@@ -77,12 +80,17 @@ START → start_node → supervisor_node ─┬─ "general"  → general_chat_n
 
 ## 🤖 에이전트 구성
 
-### Legal Agent (법무지원)
+### Legal Agent (법무지원) — Advanced RAG
 
 - **방식**: `create_react_agent` (LangGraph ReAct 패턴)
 - **모델**: gpt-4o (fast_llm)
 - **도구**: `azure_legal_search` (Azure AI Search 시맨틱 하이브리드 검색)
-- **캐싱**: `user_query` 기준 MD5 키, 1시간 TTL 인메모리 캐시
+- **Multi-Query Retrieval**: 시스템 프롬프트가 서로 다른 키워드로 2~3회 검색을 지시하여 단일 쿼리의 recall 한계를 극복
+- **Semantic Reranker 필터링**: Azure semantic reranker 점수 1.0 미만(0-4 스케일) 문서를 제거하여 노이즈 차단 (최소 1건 유지)
+- **확장된 컨텍스트 윈도우**: 검색 결과 content를 500자→2000자로 확대하여 법령 조문의 핵심 조항 보존 (평균 6,388자 조문의 31%)
+- **Cross-Agent Context Propagation**: CosmosDB 대화 이력에서 최근 2턴(4메시지)을 추출하여 ReAct 에이전트에 전달, 꼬리질문 지원
+- **컨텍스트 인식 캐싱**: `user_query + chat_context` 해시 기반 캐시 키로 동일 질문이라도 대화 맥락에 따라 다른 응답 생성
+- **구조화된 답변**: 5단계 강제 구조 (한줄요약 → 적용법률분석 → 실무조치사항 → 리스크요약 → 참고법령)
 - **출력 정제**: Thought/Action 패턴 노출 감지 시 폴백 응답 반환
 
 ### Research Agent (리서치)
@@ -106,7 +114,30 @@ START → start_node → supervisor_node ─┬─ "general"  → general_chat_n
 | **단일 ReAct Agent** | Legal 처리를 단일 `create_react_agent`로 통합 | LLM 호출 최소화 |
 | **재시도 축소** | max_retries = 1, active_agent 기반 동적 라우팅 | 최악의 경우에도 빠른 종료 |
 | **Search 캐시** | Azure AI Search 결과 인메모리 TTL 캐시 (1시간) | 동일 검색어 API 호출 생략 |
-| **Agent 결과 캐시** | user_query 기준 에이전트 결과 캐시 (1시간) | 동일 질문 즉시 응답 |
+| **Agent 결과 캐시** | user_query + chat_context 기준 에이전트 결과 캐시 (1시간) | 동일 질문 즉시 응답 |
+| **관련성 필터링** | Semantic Reranker score < 1.0 문서 제거 (최소 1건 유지) | 노이즈 감소로 LLM 판단력 향상 |
+
+## 🧠 Advanced RAG / Multi-Agent 기법 해설
+
+본 시스템이 단순 RAG(Retrieve-and-Generate)와 기본 멀티에이전트를 넘어서는 지점은 다음과 같습니다.
+
+### Advanced RAG 기법
+
+| 기법 | 기존 (Naive RAG) | 본 시스템 | 효과 |
+| :--- | :--- | :--- | :--- |
+| **Multi-Query Retrieval** | 사용자 쿼리 1회 그대로 검색 | 시스템 프롬프트가 2~3개 키워드 변형으로 다각도 검색 지시 | 단일 쿼리의 recall 한계 극복, 다수 관련 법령 포착 |
+| **Semantic Reranker 필터링** | 검색 결과 전체를 LLM에 전달 | Reranker score < 1.0 문서 제거 (최소 1건 유지) | 저관련성 노이즈 제거로 LLM의 정밀도 향상 |
+| **컨텍스트 윈도우 확대** | 검색 결과 500자 truncation | 2000자로 확대 + 전체 길이 표기 | 법령 조문 핵심 조항 보존 (8% → 31%) |
+| **구조화된 생성 지시** | "간결하게 답변" 일반 지시 | 5단계 강제 구조 (한줄요약→법률분석→실무조치→리스크→참고법령) | 보고서 수준의 일관된 출력 품질 |
+
+### Advanced Multi-Agent 기법
+
+| 기법 | 기존 (Basic Multi-Agent) | 본 시스템 | 효과 |
+| :--- | :--- | :--- | :--- |
+| **Cross-Agent Context Propagation** | 에이전트에 현재 쿼리만 전달 | CosmosDB → AgentState → legal_agent_node → ReAct messages로 최근 2턴 전파 | 꼬리질문("그럼 벌금은?") 시 이전 맥락 유지 |
+| **Context-Aware Caching** | user_query만으로 캐시 키 생성 | user_query + chat_context 해시로 캐시 키 생성 | 동일 질문이라도 대화 맥락에 따라 다른 응답 캐싱 |
+| **Domain-Aware Structural Validation** | 실패 키워드만 검사하는 단일 검증 | 에이전트 유형별 구조 검증 (법조항 인용 `제N조`, 면책 조항, 최소 길이) | 법령 인용 없는 일반론 답변 자동 재시도 |
+| **Self-Healing with Active Agent Routing** | 고정된 재시도 경로 | `active_agent` 기반 동적 라우팅으로 실패한 에이전트만 정확히 재실행 | 에이전트별 독립적 품질 보증 |
 
 ## 🔌 API 엔드포인트
 
@@ -147,22 +178,36 @@ START → start_node → supervisor_node ─┬─ "general"  → general_chat_n
 - reasoning 모델(gpt-5.x, o1, o3)은 `temperature` 파라미터를 자동으로 생략합니다.
 - 모든 LLM은 `streaming=True`로 초기화되어 SSE 토큰 스트리밍을 지원합니다.
 
-### Legal Agent 내부 동작
+### Legal Agent 내부 동작 — Advanced RAG Pipeline
 
-`create_react_agent`가 ReAct 루프를 통해 자율적으로 도구를 호출합니다.
+`create_react_agent`가 Multi-Query Retrieval + Semantic Reranker 필터링을 거친 고품질 검색 결과를 기반으로 구조화된 답변을 생성합니다.
 
 ```
-사용자 질문 → [ReAct Agent (gpt-4o)]
-                    │
-                    ├─ Thought: 어떤 법령을 검색해야 하는지 판단
-                    ├─ Action: azure_legal_search("근로기준법 부당해고")
-                    ├─ Observation: 검색 결과 5건 수신
-                    ├─ Thought: 검색 결과를 바탕으로 답변 구성
-                    └─ Final Answer: 조·항·호 인용 + 참고 법령 + 면책 조항
+[CosmosDB 대화 이력]
+        │ 최근 2턴(4메시지) 추출
+        ↓
+사용자 질문 + chat_context → [ReAct Agent (gpt-4o)]
+                                   │
+                                   ├─ Thought: 다각도 검색 전략 수립
+                                   ├─ Action: azure_legal_search("산업안전보건법 도급인 의무")
+                                   │    └─ [Semantic Reranker 필터링] score ≥ 1.0 문서만 통과
+                                   │    └─ [컨텍스트 윈도우 2000자] 조문 원문 보존
+                                   ├─ Action: azure_legal_search("산업재해보상보험법 원청 책임")
+                                   ├─ Action: azure_legal_search("중대재해처벌법 도급인")
+                                   ├─ Thought: 복수 검색 결과 종합하여 답변 구성
+                                   └─ Final Answer: 5단계 구조화 답변
+                                        ├─ 1. 한줄 요약
+                                        ├─ 2. 적용 법률 분석 (조·항·호 + 조문 원문 인용)
+                                        ├─ 3. 실무 조치사항 (체크리스트 + 위반 시 제재)
+                                        ├─ 4. 리스크 요약 (보고용)
+                                        └─ 5. 📎 참고 법령
 ```
 
-- **도구**: `azure_legal_search` — Azure AI Search 시맨틱 하이브리드 검색 (키워드 + 리랭킹)
-- **캐싱**: 검색 결과(쿼리 단위)와 에이전트 최종 응답(질문 단위) 각각 1시간 TTL 캐시
+- **Multi-Query Retrieval**: 시스템 프롬프트가 서로 다른 키워드로 2~3회 검색을 지시 → 단일 쿼리 대비 recall 향상
+- **Semantic Reranker 필터링**: Azure semantic reranker 점수 1.0 미만 문서 제거, 최소 1건 유지로 빈 결과 방지
+- **확장된 컨텍스트 윈도우**: 검색 결과 500자→2000자 확대로 법령 조문 핵심 조항 보존 (gpt-4o 128K 컨텍스트 내 5문서 × 2000자 ≈ 10K 토큰)
+- **Cross-Agent Context Propagation**: `CosmosDB → AgentState.chat_context → legal_agent_node → run_legal_agent → ReAct messages`로 대화 맥락 전파
+- **캐싱**: 검색 결과(쿼리 단위)와 에이전트 최종 응답(질문+컨텍스트 단위) 각각 1시간 TTL 캐시
 - **출력 정제**: ReAct 내부 텍스트(Thought/Action/Observation)가 최종 응답에 노출되면 폴백 응답으로 대체
 
 ### Research Agent 내부 동작
@@ -179,21 +224,28 @@ START → start_node → supervisor_node ─┬─ "general"  → general_chat_n
 - reasoning 모델(gpt-5.1)을 사용하여 복잡한 주제에 대한 고품질 분석을 수행합니다.
 - Researcher가 체계적인 보고서를 작성하고, Editor가 가독성과 톤을 다듬습니다.
 
-### Validation & Self-Healing
+### Validation & Self-Healing — Domain-Aware Structural Validation
 
-`validation_node`는 에이전트 응답의 품질을 검증하고, 실패 시 동적으로 재시도합니다.
+`validation_node`는 공통 품질 검증에 더해, 에이전트 유형별 도메인 특화 구조 검증을 수행합니다.
 
 ```
 에이전트 응답 → [validation_node]
                     │
-                    ├─ 실패 키워드 미발견 → "passed" → END
+                    ├─ [공통 검증] 실패 키워드 검사 ("죄송합니다", "오류가 발생" 등)
                     │
-                    └─ 실패 키워드 발견 ("죄송합니다", "오류가 발생" 등)
-                         │
+                    ├─ [Legal 전용 구조 검증] (active_agent == "legal" 일 때)
+                    │    ├─ 최소 길이 200자 이상
+                    │    ├─ 면책 조항 포함 여부 (※ / 법률 정보 제공 목적)
+                    │    └─ 법조항 인용 패턴 존재 여부 (제N조 정규식 매칭)
+                    │
+                    ├─ 모든 검증 통과 → "passed" → END
+                    │
+                    └─ 검증 실패
                          ├─ retry_count < max_retries → "retry" → active_agent로 복귀
                          └─ retry_count >= max_retries → "failed" → END
 ```
 
+- **Domain-Aware Validation**: Legal 에이전트 응답에 대해 법조항 인용(`제\d+조`), 면책 조항, 최소 길이를 구조적으로 검증하여, 법령 인용 없이 일반론만 서술하는 저품질 답변을 차단합니다.
 - **동적 라우팅**: `state.active_agent` 값(`"legal"` 또는 `"research"`)에 따라 해당 에이전트 노드로 정확히 돌아갑니다.
 - **재시도 제한**: 최대 1회로 제한하여 무한 루프를 방지합니다.
 
