@@ -55,9 +55,11 @@ quick-agent-poc/
    - Azure AI Search 결과 및 Agent 실행 결과에 인메모리 TTL 캐시(1시간) 적용
    - 동일 질문 재요청 시 에이전트 실행을 건너뛰고 즉시 캐시된 결과를 반환
 
-## 🔄 그래프 플로우
+## 🔄 멀티에이전트 작동 흐름
 
-LangGraph 기반 6개 노드로 구성된 Supervisor + FSM 흐름입니다.
+본 시스템은 **Supervisor Agent**가 사용자 의도를 판단하고, 3개의 전문 에이전트(Legal / Research / General) 중 하나를 선택하여 실행하는 **Supervisor 패턴 멀티에이전트** 구조입니다. 각 에이전트는 독립적인 도구·모델·프롬프트를 가지며, 공통 Validation 노드가 품질을 보증합니다.
+
+### 전체 흐름도
 
 ```plaintext
 START → start_node → supervisor_node ─┬─ "general"  → general_chat_node → END
@@ -68,6 +70,60 @@ START → start_node → supervisor_node ─┬─ "general"  → general_chat_n
                                                                                                 │
                                                                                          "failed" → END
 ```
+
+### 단계별 에이전트 작동 순서
+
+**Step 1. Supervisor Agent (의도 분류)**
+- 사용자 질문이 들어오면 가장 먼저 `supervisor_node`가 실행됩니다.
+- 키워드 Fast Path: `["법", "조항", "판례", "소송", ...]` 등 법률 키워드가 있으면 LLM 호출 없이 즉시 `legal` 라우팅
+- LLM Slow Path: 키워드가 없으면 gpt-4o가 `"legal"` / `"research"` / `"general"` 중 하나로 분류
+- **결과**: `state.route`에 라우팅 경로가 설정되어 해당 전문 에이전트로 분기
+
+**Step 2. 전문 에이전트 실행 (3개 중 1개)**
+
+| 에이전트 | 라우팅 조건 | 모델 | 내부 동작 | 도구 |
+| :--- | :--- | :--- | :--- | :--- |
+| **Legal Agent** | `route == "legal"` | gpt-4o | ReAct 루프: Multi-Query 검색 2~3회 → Reranker 필터링 → 5단계 구조화 답변 | `azure_legal_search` |
+| **Research Agent** | `route == "research"` | gpt-5.1 | 2-Stage Chain: Researcher(심층 분석) → Editor(가독성 편집) | 없음 (순수 LLM) |
+| **General Chat** | `route == "general"` | gpt-4o | 단일 LLM 호출 (최근 3턴 대화 컨텍스트 포함) | 없음 (순수 LLM) |
+
+- Legal Agent는 대화 이력(최근 2턴)을 함께 전달받아 꼬리질문을 처리합니다.
+- Research Agent는 Researcher가 보고서를 작성하고 Editor가 다듬는 2단계로 동작합니다.
+- General Chat은 검증 없이 바로 응답을 반환합니다.
+
+**Step 3. Validation Agent (품질 검증 — Legal/Research만)**
+- Legal Agent와 Research Agent의 응답은 반드시 `validation_node`를 거칩니다.
+- 공통 검증: 실패 키워드(`"죄송합니다"`, `"오류가 발생"` 등) 검사
+- Legal 전용 구조 검증: 최소 200자 + 면책 조항 + 법조항 인용(`제N조`) 패턴
+- **통과** → 사용자에게 응답 반환
+- **실패** → `active_agent` 기반으로 해당 에이전트(Legal 또는 Research)를 1회 재실행
+- **재실패** → 현재 응답 그대로 반환 (무한 루프 방지)
+
+### 에이전트 간 협업 구조
+
+```plaintext
+┌─────────────────────────────────────────────────────────────┐
+│                    AgentState (공유 상태)                     │
+│  user_query, chat_context, route, active_agent,             │
+│  final_response, validation_status, retry_count ...         │
+└──────────┬──────────────┬──────────────┬────────────────────┘
+           │              │              │
+     ┌─────▼─────┐ ┌─────▼─────┐ ┌─────▼─────┐
+     │  Legal     │ │ Research  │ │ General   │
+     │  Agent     │ │ Agent     │ │ Chat      │
+     │ (ReAct +   │ │ (2-Stage  │ │ (단일 LLM │
+     │  RAG Tool) │ │  Chain)   │ │  호출)    │
+     └─────┬─────┘ └─────┬─────┘ └─────┬─────┘
+           │              │              │
+           └──────┬───────┘              │
+                  ▼                      ▼
+          Validation Node            직접 END
+          (Domain-Aware)
+```
+
+- **모든 에이전트는 `AgentState`를 공유**합니다. Supervisor가 `route`를 설정하면, 해당 에이전트가 `final_response`를 채우고, Validation이 `validation_status`를 판정합니다.
+- **에이전트 간 직접 통신은 없습니다.** 상태 객체(`AgentState`)를 매개로 간접 협업하는 LangGraph의 **상태 기반 오케스트레이션** 패턴입니다.
+- **Supervisor → 전문 에이전트 → Validation**의 3단계 파이프라인이 모든 요청에 대해 일관되게 적용됩니다.
 
 | 노드 | 역할 |
 | :--- | :--- |

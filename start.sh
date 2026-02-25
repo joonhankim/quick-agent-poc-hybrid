@@ -97,7 +97,7 @@ echo -e "${YELLOW}      로그: $AGENT_LOG${NC}"
 # 가상환경 활성화 및 uvicorn 실행
 source .venv/bin/activate
 # FORCE_COLORS 환경변수 설정하여 파일 리다이렉트 시에도 컬러 유지
-FORCE_COLORS=true ENVIRONMENT=local uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload > "$AGENT_LOG" 2>&1 &
+FORCE_COLORS=true ENVIRONMENT=local LOG_LEVEL=INFO uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload > "$AGENT_LOG" 2>&1 &
 AGENT_PID_NUM=$!
 echo $AGENT_PID_NUM > "$AGENT_PID"
 
