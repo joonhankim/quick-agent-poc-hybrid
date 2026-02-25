@@ -42,7 +42,7 @@ class AgentState(BaseModel):
 
     # 라우팅 정보
     next_step: Optional[str] = None
-    route: Optional[str] = "legal"  # "general", "legal", or "research" (default: legal)
+    route: Optional[str] = "legal"  # "general" 또는 "legal" (default: legal)
     active_agent: Optional[str] = None  # 재시도 시 어떤 에이전트로 돌아갈지 결정
 
     # 임베딩 캐시 (기존 코드 재사용)

@@ -37,6 +37,7 @@ class ConfigManager:
             "AZURE_SEARCH_ENDPOINT",
             "AZURE_SEARCH_API_KEY",
             "AZURE_SEARCH_INDEX_NAME",
+            "TAVILY_API_KEY",
         ]
 
         self._load_config()

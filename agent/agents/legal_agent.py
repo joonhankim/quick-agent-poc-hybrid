@@ -11,6 +11,7 @@ from langgraph.prebuilt import create_react_agent
 
 from agent.main import fast_llm
 from agent.tools.azure_search_tool import azure_legal_search
+from agent.tools.tavily_search_tool import tavily_legal_search
 from agent.agents.prompts import LEGAL_AGENT_SYSTEM_PROMPT
 from api.core.logger import APILogger
 
@@ -35,7 +36,7 @@ _FALLBACK_RESPONSE = (
 # ReAct 에이전트 (모듈 레벨 싱글턴)
 _legal_agent = create_react_agent(
     model=fast_llm,
-    tools=[azure_legal_search],
+    tools=[azure_legal_search, tavily_legal_search],
     prompt=LEGAL_AGENT_SYSTEM_PROMPT,
 )
 

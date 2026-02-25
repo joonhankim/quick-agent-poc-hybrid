@@ -1,8 +1,8 @@
 # HD현대 법무 지원 Agent
 
 순수 LangGraph 기반 **Advanced Multi-Agent + Advanced RAG** 아키텍처의 법무 지원 AI 시스템입니다.
-Supervisor 패턴으로 의도를 분류하고, 전문 에이전트(Legal, Research, General)가 각 도메인을 처리합니다.
-Legal Agent는 Multi-Query Retrieval, Semantic Reranker 필터링, Cross-Agent Context Propagation,
+Supervisor 패턴으로 의도를 분류하고, 전문 에이전트(Legal, General)가 각 도메인을 처리합니다.
+Legal Agent는 Dual-Source Retrieval(Azure AI Search + Tavily 웹 검색), Multi-Query Retrieval, Semantic Reranker 필터링, Cross-Agent Context Propagation,
 Domain-Aware Structural Validation 등 고급 RAG/에이전트 기법을 적용하여
 실무자가 상급자에게 보고할 수 있는 수준의 구조화된 법률 답변을 생성합니다.
 
@@ -10,7 +10,7 @@ Domain-Aware Structural Validation 등 고급 RAG/에이전트 기법을 적용�
 
 1. **법무 업무 자동화**: 법률 질의에 대해 법령·판례를 검색하고 정밀한 분석 답변을 제공합니다.
 2. **Advanced Multi-Agent**: Supervisor 패턴 라우팅 + Cross-Agent Context Propagation으로 멀티턴 대화를 지원하며, 에이전트별 Domain-Aware Validation으로 품질을 보증합니다.
-3. **Advanced RAG**: Multi-Query Retrieval(2~3회 다각도 검색) + Semantic Reranker 기반 관련성 필터링 + 확장된 컨텍스트 윈도우(2000자)로 법령 조문의 핵심 조항을 보존합니다.
+3. **Advanced RAG**: Dual-Source Retrieval(법령 DB + 웹 검색) + Multi-Query Retrieval(2~3회 다각도 검색) + Semantic Reranker 기반 관련성 필터링 + 확장된 컨텍스트 윈도우(2000자)로 법령 조문의 핵심 조항을 보존합니다.
 4. **FSM 기반 Self-Healing**: 에이전트 유형별 구조 검증(법조항 인용, 면책 조항, 최소 길이)으로 불완전한 답변을 자동 재시도합니다.
 5. **보안 및 확장성**: Azure Private 환경 내에서 동작하며, CosmosDB에 대화 맥락을 영구 저장(Persistence)합니다.
 
@@ -25,10 +25,10 @@ quick-agent-poc/
 │   └── api/routers/db        # DB Interaction (History, Metadata)
 ├── agent/                    # AI Core (Pure LangGraph Multi-Agent)
 │   ├── graph/                # LangGraph (Orchestrator + Persistence)
-│   ├── node/                 # Graph Nodes (Supervisor, Legal, Research, Chat, Validation)
+│   ├── node/                 # Graph Nodes (Supervisor, Legal, Chat, Validation)
 │   ├── schema/               # State Definition (AgentState)
-│   ├── agents/               # Agent 모듈 (Legal ReAct, Research Chain, Prompts)
-│   └── tools/                # Azure AI Search Tool (@tool 데코레이터)
+│   ├── agents/               # Agent 모듈 (Legal ReAct, Prompts)
+│   └── tools/                # Azure AI Search + Tavily Web Search (@tool 데코레이터)
 ├── db/                       # Database Connections (CosmosDB)
 └── config/                   # Configuration (Azure Key Vault, .env)
 ```
@@ -37,14 +37,14 @@ quick-agent-poc/
 
 1. **Supervisor 패턴 Multi-Agent**:
    - `supervisor_node`가 키워드 Fast Path + LLM Slow Path로 의도를 분류합니다.
-   - 각 경로(legal, research, general)에 맞는 전문 에이전트가 독립적으로 처리합니다.
+   - 각 경로(legal, general)에 맞는 전문 에이전트가 독립적으로 처리합니다.
 
 2. **완전 비동기 (Async/Await)**:
    - 모든 노드가 `async`로 동작하며, LLM 호출은 `ainvoke`를 사용합니다.
    - `asyncio.to_thread` 같은 동기-비동기 브릿지 없이 순수 비동기 파이프라인으로 구성됩니다.
 
 3. **FSM 기반 품질 보증 (Self-Healing)**:
-   - `validation_node`가 답변 품질을 검증하고, 실패 시 `active_agent` 기반으로 해당 에이전트를 자동 재시도합니다.
+   - `validation_node`가 답변 품질을 검증하고, 실패 시 Legal Agent를 자동 재시도합니다.
    - 불완전한 답변을 사용자에게 그대로 노출하지 않고, 내부적으로 개선을 시도합니다.
 
 4. **상태 영속성 (Persistence)**:
@@ -52,23 +52,22 @@ quick-agent-poc/
 
 5. **Latency 최적화**:
    - Legal Agent: `create_react_agent` + gpt-4o로 단일 에이전트 실행 (CrewAI 오버헤드 제거)
-   - Azure AI Search 결과 및 Agent 실행 결과에 인메모리 TTL 캐시(1시간) 적용
+   - Azure AI Search 결과, Tavily 웹 검색 결과, Agent 실행 결과에 인메모리 TTL 캐시(1시간) 적용
    - 동일 질문 재요청 시 에이전트 실행을 건너뛰고 즉시 캐시된 결과를 반환
 
 ## 🔄 멀티에이전트 작동 흐름
 
-본 시스템은 **Supervisor Agent**가 사용자 의도를 판단하고, 3개의 전문 에이전트(Legal / Research / General) 중 하나를 선택하여 실행하는 **Supervisor 패턴 멀티에이전트** 구조입니다. 각 에이전트는 독립적인 도구·모델·프롬프트를 가지며, 공통 Validation 노드가 품질을 보증합니다.
+본 시스템은 **Supervisor Agent**가 사용자 의도를 판단하고, 2개의 전문 에이전트(Legal / General) 중 하나를 선택하여 실행하는 **Supervisor 패턴 멀티에이전트** 구조입니다. Legal Agent는 Dual-Tool(법령 DB + 웹 검색)을 갖추고 있으며, 공통 Validation 노드가 품질을 보증합니다.
 
 ### 전체 흐름도
 
 ```plaintext
-START → start_node → supervisor_node ─┬─ "general"  → general_chat_node → END
-                                       ├─ "legal"    → legal_agent_node → validation_node ─┬─ "passed" → END
-                                       └─ "research" → research_agent_node → validation_node┘  │
-                                                             ↑                                  │
-                                                             └──── "retry" (active_agent 기반) ─┘
-                                                                                                │
-                                                                                         "failed" → END
+START → start_node → supervisor_node ─┬─ "general" → general_chat_node → END
+                                       └─ "legal"   → legal_agent_node → validation_node ─┬─ "passed" → END
+                                                            ↑                               │
+                                                            └──── "retry" ─────────────────┘
+                                                                                            │
+                                                                                     "failed" → END
 ```
 
 ### 단계별 에이전트 작동 순서
@@ -76,27 +75,26 @@ START → start_node → supervisor_node ─┬─ "general"  → general_chat_n
 **Step 1. Supervisor Agent (의도 분류)**
 - 사용자 질문이 들어오면 가장 먼저 `supervisor_node`가 실행됩니다.
 - 키워드 Fast Path: `["법", "조항", "판례", "소송", ...]` 등 법률 키워드가 있으면 LLM 호출 없이 즉시 `legal` 라우팅
-- LLM Slow Path: 키워드가 없으면 gpt-4o가 `"legal"` / `"research"` / `"general"` 중 하나로 분류
+- LLM Slow Path: 키워드가 없으면 gpt-4o가 `"legal"` / `"general"` 중 하나로 분류
 - **결과**: `state.route`에 라우팅 경로가 설정되어 해당 전문 에이전트로 분기
 
-**Step 2. 전문 에이전트 실행 (3개 중 1개)**
+**Step 2. 전문 에이전트 실행 (2개 중 1개)**
 
 | 에이전트 | 라우팅 조건 | 모델 | 내부 동작 | 도구 |
 | :--- | :--- | :--- | :--- | :--- |
-| **Legal Agent** | `route == "legal"` | gpt-4o | ReAct 루프: Multi-Query 검색 2~3회 → Reranker 필터링 → 5단계 구조화 답변 | `azure_legal_search` |
-| **Research Agent** | `route == "research"` | gpt-5.1 | 2-Stage Chain: Researcher(심층 분석) → Editor(가독성 편집) | 없음 (순수 LLM) |
+| **Legal Agent** | `route == "legal"` | gpt-4o | ReAct 루프: Dual-Source 검색 (법령 DB + 웹) → Reranker 필터링 → 5단계 구조화 답변 | `azure_legal_search`, `tavily_legal_search` |
 | **General Chat** | `route == "general"` | gpt-4o | 단일 LLM 호출 (최근 3턴 대화 컨텍스트 포함) | 없음 (순수 LLM) |
 
 - Legal Agent는 대화 이력(최근 2턴)을 함께 전달받아 꼬리질문을 처리합니다.
-- Research Agent는 Researcher가 보고서를 작성하고 Editor가 다듬는 2단계로 동작합니다.
+- Legal Agent는 질문의 성격에 따라 법령 DB 검색과 웹 검색을 자율적으로 선택/병행합니다.
 - General Chat은 검증 없이 바로 응답을 반환합니다.
 
-**Step 3. Validation Agent (품질 검증 — Legal/Research만)**
-- Legal Agent와 Research Agent의 응답은 반드시 `validation_node`를 거칩니다.
+**Step 3. Validation Agent (품질 검증 — Legal만)**
+- Legal Agent의 응답은 반드시 `validation_node`를 거칩니다.
 - 공통 검증: 실패 키워드(`"죄송합니다"`, `"오류가 발생"` 등) 검사
 - Legal 전용 구조 검증: 최소 200자 + 면책 조항 + 법조항 인용(`제N조`) 패턴
 - **통과** → 사용자에게 응답 반환
-- **실패** → `active_agent` 기반으로 해당 에이전트(Legal 또는 Research)를 1회 재실행
+- **실패** → Legal Agent를 1회 재실행
 - **재실패** → 현재 응답 그대로 반환 (무한 루프 방지)
 
 ### 에이전트 간 협업 구조
@@ -106,19 +104,18 @@ START → start_node → supervisor_node ─┬─ "general"  → general_chat_n
 │                    AgentState (공유 상태)                     │
 │  user_query, chat_context, route, active_agent,             │
 │  final_response, validation_status, retry_count ...         │
-└──────────┬──────────────┬──────────────┬────────────────────┘
-           │              │              │
-     ┌─────▼─────┐ ┌─────▼─────┐ ┌─────▼─────┐
-     │  Legal     │ │ Research  │ │ General   │
-     │  Agent     │ │ Agent     │ │ Chat      │
-     │ (ReAct +   │ │ (2-Stage  │ │ (단일 LLM │
-     │  RAG Tool) │ │  Chain)   │ │  호출)    │
-     └─────┬─────┘ └─────┬─────┘ └─────┬─────┘
-           │              │              │
-           └──────┬───────┘              │
-                  ▼                      ▼
-          Validation Node            직접 END
-          (Domain-Aware)
+└──────────┬──────────────────────────────┬────────────────────┘
+           │                              │
+     ┌─────▼─────┐                  ┌─────▼─────┐
+     │  Legal     │                  │ General   │
+     │  Agent     │                  │ Chat      │
+     │ (ReAct +   │                  │ (단일 LLM │
+     │  Dual-Tool)│                  │  호출)    │
+     └─────┬─────┘                  └─────┬─────┘
+           │                              │
+           ▼                              ▼
+   Validation Node                    직접 END
+   (Domain-Aware)
 ```
 
 - **모든 에이전트는 `AgentState`를 공유**합니다. Supervisor가 `route`를 설정하면, 해당 에이전트가 `final_response`를 채우고, Validation이 `validation_status`를 판정합니다.
@@ -128,19 +125,21 @@ START → start_node → supervisor_node ─┬─ "general"  → general_chat_n
 | 노드 | 역할 |
 | :--- | :--- |
 | **start_node** | 상태 초기화 |
-| **supervisor_node** | 의도 분류 (키워드 Fast Path + LLM Slow Path → general / legal / research) |
+| **supervisor_node** | 의도 분류 (키워드 Fast Path + LLM Slow Path → general / legal) |
 | **general_chat_node** | 일반 대화 처리 (도구 없이 fast_llm 직접 응답) |
-| **legal_agent_node** | 법률 RAG 에이전트 실행 (`create_react_agent` + `azure_legal_search`) |
-| **research_agent_node** | 리서치 에이전트 실행 (2-Stage LLM Chain: researcher → editor) |
-| **validation_node** | 답변 품질 검증 및 `active_agent` 기반 동적 재시도 (최대 1회) |
+| **legal_agent_node** | 법률 RAG 에이전트 실행 (`create_react_agent` + `azure_legal_search` + `tavily_legal_search`) |
+| **validation_node** | 답변 품질 검증 및 동적 재시도 (최대 1회) |
 
 ## 🤖 에이전트 구성
 
-### Legal Agent (법무지원) — Advanced RAG
+### Legal Agent (법무지원) — Advanced RAG + Dual-Tool
 
 - **방식**: `create_react_agent` (LangGraph ReAct 패턴)
 - **모델**: gpt-4o (fast_llm)
-- **도구**: `azure_legal_search` (Azure AI Search 시맨틱 하이브리드 검색)
+- **도구**:
+  - `azure_legal_search` (Azure AI Search 시맨틱 하이브리드 검색) — 법령 원문, 조문, 판례 텍스트
+  - `tavily_legal_search` (Tavily 웹 검색) — 최신 판례 동향, 법률 개정 뉴스, 법률 해석
+- **Dual-Source Retrieval**: ReAct 루프가 질문의 성격에 따라 법령 DB 검색과 웹 검색을 자율적으로 선택/병행
 - **Multi-Query Retrieval**: 시스템 프롬프트가 서로 다른 키워드로 2~3회 검색을 지시하여 단일 쿼리의 recall 한계를 극복
 - **Semantic Reranker 필터링**: Azure semantic reranker 점수 1.0 미만(0-4 스케일) 문서를 제거하여 노이즈 차단 (최소 1건 유지)
 - **확장된 컨텍스트 윈도우**: 검색 결과 content를 500자→2000자로 확대하여 법령 조문의 핵심 조항 보존 (평균 6,388자 조문의 31%)
@@ -148,13 +147,6 @@ START → start_node → supervisor_node ─┬─ "general"  → general_chat_n
 - **컨텍스트 인식 캐싱**: `user_query + chat_context` 해시 기반 캐시 키로 동일 질문이라도 대화 맥락에 따라 다른 응답 생성
 - **구조화된 답변**: 5단계 강제 구조 (한줄요약 → 적용법률분석 → 실무조치사항 → 리스크요약 → 참고법령)
 - **출력 정제**: Thought/Action 패턴 노출 감지 시 폴백 응답 반환
-
-### Research Agent (리서치)
-
-- **방식**: 2-Stage LLM Chain (도구 없이 순수 LLM 호출)
-- **모델**: gpt-5.1 (langchain_llm, reasoning 모델)
-- **Stage 1** (Researcher): 심층 리서치 보고서 작성
-- **Stage 2** (Editor): 사용자 친화적으로 편집
 
 ### General Chat (일반 대화)
 
@@ -168,8 +160,8 @@ START → start_node → supervisor_node ─┬─ "general"  → general_chat_n
 | :--- | :--- | :--- |
 | **CrewAI 제거** | 순수 LangGraph 에이전트로 전환 (동기 브릿지 제거) | 오버헤드 제거, 완전 비동기 |
 | **단일 ReAct Agent** | Legal 처리를 단일 `create_react_agent`로 통합 | LLM 호출 최소화 |
-| **재시도 축소** | max_retries = 1, active_agent 기반 동적 라우팅 | 최악의 경우에도 빠른 종료 |
-| **Search 캐시** | Azure AI Search 결과 인메모리 TTL 캐시 (1시간) | 동일 검색어 API 호출 생략 |
+| **재시도 축소** | max_retries = 1, 동적 라우팅 | 최악의 경우에도 빠른 종료 |
+| **Search 캐시** | Azure AI Search + Tavily 결과 인메모리 TTL 캐시 (1시간) | 동일 검색어 API 호출 생략 |
 | **Agent 결과 캐시** | user_query + chat_context 기준 에이전트 결과 캐시 (1시간) | 동일 질문 즉시 응답 |
 | **관련성 필터링** | Semantic Reranker score < 1.0 문서 제거 (최소 1건 유지) | 노이즈 감소로 LLM 판단력 향상 |
 
@@ -181,6 +173,7 @@ START → start_node → supervisor_node ─┬─ "general"  → general_chat_n
 
 | 기법 | 기존 (Naive RAG) | 본 시스템 | 효과 |
 | :--- | :--- | :--- | :--- |
+| **Dual-Source Retrieval** | 단일 검색 소스 | 법령 DB(Azure AI Search) + 웹 검색(Tavily)을 ReAct가 자율 선택/병행 | 법령 원문과 최신 동향을 동시에 커버 |
 | **Multi-Query Retrieval** | 사용자 쿼리 1회 그대로 검색 | 시스템 프롬프트가 2~3개 키워드 변형으로 다각도 검색 지시 | 단일 쿼리의 recall 한계 극복, 다수 관련 법령 포착 |
 | **Semantic Reranker 필터링** | 검색 결과 전체를 LLM에 전달 | Reranker score < 1.0 문서 제거 (최소 1건 유지) | 저관련성 노이즈 제거로 LLM의 정밀도 향상 |
 | **컨텍스트 윈도우 확대** | 검색 결과 500자 truncation | 2000자로 확대 + 전체 길이 표기 | 법령 조문 핵심 조항 보존 (8% → 31%) |
@@ -199,7 +192,7 @@ START → start_node → supervisor_node ─┬─ "general"  → general_chat_n
 
 | 엔드포인트 | 메서드 | 설명 |
 | :--- | :--- | :--- |
-| `/agent/chat` | POST | 법률/일반/리서치 질문 처리 (SSE 스트리밍 응답) |
+| `/agent/chat` | POST | 법률/일반 질문 처리 (SSE 스트리밍 응답) |
 | `/agent/health` | GET | 헬스 체크 |
 | `/db/room_list` | GET | 대화방 목록 조회 |
 | `/db/room_history` | GET | 대화 히스토리 조회 |
@@ -216,27 +209,23 @@ START → start_node → supervisor_node ─┬─ "general"  → general_chat_n
 ```
 사용자 질문 → [키워드 Fast Path] ──법률 키워드 발견──→ "legal"
                     │
-                    └──키워드 미발견──→ [LLM Slow Path (gpt-4o)] → "legal" / "research" / "general"
+                    └──키워드 미발견──→ [LLM Slow Path (gpt-4o)] → "legal" / "general"
 ```
 
 - **Fast Path**: `["법", "조항", "판례", "소송", "형법", "민법", ...]` 등 법률 키워드가 포함되면 LLM 호출 없이 즉시 `legal` 라우팅
-- **Slow Path**: 키워드가 없는 경우 gpt-4o가 3개 카테고리 중 하나로 분류
+- **Slow Path**: 키워드가 없는 경우 gpt-4o가 2개 카테고리 중 하나로 분류
 
-### LLM 이중 모델 전략
-
-용도에 따라 두 개의 LLM 인스턴스를 사용합니다.
+### LLM 모델 전략
 
 | 인스턴스 | 모델 | 용도 | 특성 |
 | :--- | :--- | :--- | :--- |
 | `fast_llm` | gpt-4o | Supervisor, Legal Agent, General Chat | 빠른 응답, 도구 호출 지원 |
-| `langchain_llm` | gpt-5.1 | Research Agent (researcher + editor) | reasoning 모델, 심층 분석 |
 
-- reasoning 모델(gpt-5.x, o1, o3)은 `temperature` 파라미터를 자동으로 생략합니다.
 - 모든 LLM은 `streaming=True`로 초기화되어 SSE 토큰 스트리밍을 지원합니다.
 
-### Legal Agent 내부 동작 — Advanced RAG Pipeline
+### Legal Agent 내부 동작 — Advanced RAG Pipeline + Dual-Tool
 
-`create_react_agent`가 Multi-Query Retrieval + Semantic Reranker 필터링을 거친 고품질 검색 결과를 기반으로 구조화된 답변을 생성합니다.
+`create_react_agent`가 Dual-Source Retrieval(법령 DB + 웹 검색) + Semantic Reranker 필터링을 거친 고품질 검색 결과를 기반으로 구조화된 답변을 생성합니다.
 
 ```
 [CosmosDB 대화 이력]
@@ -244,41 +233,35 @@ START → start_node → supervisor_node ─┬─ "general"  → general_chat_n
         ↓
 사용자 질문 + chat_context → [ReAct Agent (gpt-4o)]
                                    │
-                                   ├─ Thought: 다각도 검색 전략 수립
-                                   ├─ Action: azure_legal_search("산업안전보건법 도급인 의무")
-                                   │    └─ [Semantic Reranker 필터링] score ≥ 1.0 문서만 통과
-                                   │    └─ [컨텍스트 윈도우 2000자] 조문 원문 보존
-                                   ├─ Action: azure_legal_search("산업재해보상보험법 원청 책임")
-                                   ├─ Action: azure_legal_search("중대재해처벌법 도급인")
-                                   ├─ Thought: 복수 검색 결과 종합하여 답변 구성
+                                   ├─ Thought: 질문 분석 → 도구 선택 전략 수립
+                                   │
+                                   ├─ [법령 DB 검색 경로]
+                                   │    ├─ Action: azure_legal_search("산업안전보건법 도급인 의무")
+                                   │    │    └─ [Semantic Reranker 필터링] score ≥ 1.0 문서만 통과
+                                   │    │    └─ [컨텍스트 윈도우 2000자] 조문 원문 보존
+                                   │    ├─ Action: azure_legal_search("산업재해보상보험법 원청 책임")
+                                   │    └─ Action: azure_legal_search("중대재해처벌법 도급인")
+                                   │
+                                   ├─ [웹 검색 경로]
+                                   │    └─ Action: tavily_legal_search("2024년 중대재해처벌법 판례 동향")
+                                   │         └─ 최신 판례 뉴스, 법률 해석, 개정 동향
+                                   │
+                                   ├─ Thought: 복수 소스 결과 종합하여 답변 구성
                                    └─ Final Answer: 5단계 구조화 답변
                                         ├─ 1. 한줄 요약
                                         ├─ 2. 적용 법률 분석 (조·항·호 + 조문 원문 인용)
                                         ├─ 3. 실무 조치사항 (체크리스트 + 위반 시 제재)
                                         ├─ 4. 리스크 요약 (보고용)
-                                        └─ 5. 📎 참고 법령
+                                        └─ 5. 📎 참고 법령 (+ 웹 출처 URL)
 ```
 
+- **Dual-Source Retrieval**: ReAct 루프가 질문의 성격에 따라 `azure_legal_search`(법령 DB)와 `tavily_legal_search`(웹)를 자율적으로 선택/병행
 - **Multi-Query Retrieval**: 시스템 프롬프트가 서로 다른 키워드로 2~3회 검색을 지시 → 단일 쿼리 대비 recall 향상
 - **Semantic Reranker 필터링**: Azure semantic reranker 점수 1.0 미만 문서 제거, 최소 1건 유지로 빈 결과 방지
 - **확장된 컨텍스트 윈도우**: 검색 결과 500자→2000자 확대로 법령 조문 핵심 조항 보존 (gpt-4o 128K 컨텍스트 내 5문서 × 2000자 ≈ 10K 토큰)
 - **Cross-Agent Context Propagation**: `CosmosDB → AgentState.chat_context → legal_agent_node → run_legal_agent → ReAct messages`로 대화 맥락 전파
-- **캐싱**: 검색 결과(쿼리 단위)와 에이전트 최종 응답(질문+컨텍스트 단위) 각각 1시간 TTL 캐시
+- **캐싱**: 법령 DB 검색 결과, 웹 검색 결과, 에이전트 최종 응답 각각 1시간 TTL 캐시
 - **출력 정제**: ReAct 내부 텍스트(Thought/Action/Observation)가 최종 응답에 노출되면 폴백 응답으로 대체
-
-### Research Agent 내부 동작
-
-도구 없이 2단계 LLM 체인으로 구성됩니다.
-
-```
-사용자 질문 → [Stage 1: Researcher (gpt-5.1)] → 심층 리서치 보고서
-                                                        │
-                                                        ↓
-                  [Stage 2: Editor (gpt-5.1)] → 사용자 친화적 최종 응답
-```
-
-- reasoning 모델(gpt-5.1)을 사용하여 복잡한 주제에 대한 고품질 분석을 수행합니다.
-- Researcher가 체계적인 보고서를 작성하고, Editor가 가독성과 톤을 다듬습니다.
 
 ### Validation & Self-Healing — Domain-Aware Structural Validation
 
@@ -297,12 +280,11 @@ START → start_node → supervisor_node ─┬─ "general"  → general_chat_n
                     ├─ 모든 검증 통과 → "passed" → END
                     │
                     └─ 검증 실패
-                         ├─ retry_count < max_retries → "retry" → active_agent로 복귀
+                         ├─ retry_count < max_retries → "retry" → legal_agent_node로 복귀
                          └─ retry_count >= max_retries → "failed" → END
 ```
 
 - **Domain-Aware Validation**: Legal 에이전트 응답에 대해 법조항 인용(`제\d+조`), 면책 조항, 최소 길이를 구조적으로 검증하여, 법령 인용 없이 일반론만 서술하는 저품질 답변을 차단합니다.
-- **동적 라우팅**: `state.active_agent` 값(`"legal"` 또는 `"research"`)에 따라 해당 에이전트 노드로 정확히 돌아갑니다.
 - **재시도 제한**: 최대 1회로 제한하여 무한 루프를 방지합니다.
 
 ### SSE 스트리밍 파이프라인
@@ -331,5 +313,5 @@ SSE Response (text/event-stream, Vercel AI SDK 호환)
 | **Frontend** | Next.js 15, React 19, Assistant UI, TailwindCSS, Zustand |
 | **Backend** | Python 3.13+, FastAPI (Async), UV (Package Manager) |
 | **Agent** | LangGraph (Orchestration + Multi-Agent), LangChain, `create_react_agent` |
-| **AI / Model** | Azure OpenAI (GPT-5.1 Reasoning, GPT-4o Fast), Azure AI Search (Semantic RAG) |
+| **AI / Model** | Azure OpenAI (GPT-4o Fast), Azure AI Search (Semantic RAG), Tavily (Web Search) |
 | **DB / Infra** | Azure CosmosDB (History/Persistence), Azure Key Vault (Secrets) |

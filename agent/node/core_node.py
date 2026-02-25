@@ -17,8 +17,7 @@ async def supervisor_node(state: AgentState) -> AgentState:
     """
     사용자의 질문 의도를 분석하여 라우팅 경로를 결정하는 노드
     - general: 일반적인 대화 (인사, 농담 등) -> general_chat_node
-    - legal: 법률 관련 질문 -> legal_agent_node
-    - research: 심층 분석/리서치 -> research_agent_node
+    - legal: 법률 관련 질문 또는 심층 분석/리서치 -> legal_agent_node
     """
     query = state.user_query
 
@@ -41,8 +40,6 @@ async def supervisor_node(state: AgentState) -> AgentState:
 
         if "legal" in intent:
             state.route = "legal"
-        elif "research" in intent:
-            state.route = "research"
         else:
             state.route = "general"
 
@@ -89,7 +86,7 @@ async def general_chat_node(state: AgentState) -> AgentState:
 async def legal_agent_node(state: AgentState) -> AgentState:
     """
     법률 RAG 에이전트를 실행하는 노드
-    create_react_agent + azure_legal_search 도구로 법률 질문 처리
+    create_react_agent + azure_legal_search + tavily_legal_search 도구로 법률 질문 처리
     """
     from agent.agents.legal_agent import run_legal_agent
     from agent.utils.callbacks import push_status
@@ -123,44 +120,6 @@ async def legal_agent_node(state: AgentState) -> AgentState:
             "error": str(e),
         }
         state.final_response = "법률 질문 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
-
-    return state
-
-
-async def research_agent_node(state: AgentState) -> AgentState:
-    """
-    리서치 에이전트를 실행하는 노드
-    2단계 LLM 체인 (researcher → editor)
-    """
-    from agent.agents.research_agent import run_research_agent
-    from agent.utils.callbacks import push_status
-
-    logger.info(f"Research Agent 실행 시작 - 쿼리: {state.user_query}")
-    push_status("심층 리서치를 진행하고 있습니다...")
-
-    state.active_agent = "research"
-
-    try:
-        result = await run_research_agent(state.user_query)
-
-        state.final_response = result
-        state.agent_metadata = {
-            "agent_type": "research_chain",
-            "status": "success",
-            "query": state.user_query,
-        }
-
-        logger.info("Research Agent 실행 완료")
-
-    except Exception as e:
-        logger.error(f"Research Agent 실행 실패: {str(e)}")
-        state.error_logs.append(f"Research Agent execution error: {str(e)}")
-        state.agent_metadata = {
-            "agent_type": "research_chain",
-            "status": "failed",
-            "error": str(e),
-        }
-        state.final_response = "리서치 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
 
     return state
 
